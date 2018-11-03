@@ -1,0 +1,59 @@
+#!/usr/bin/perl -w
+use strict;
+use warnings;
+
+use POSIX qw(SIGALRM);
+use IPC::Open2;
+
+my $program = "connect4";
+my $MAX_TIME = 10;
+
+$| = 1;
+sub test_file {
+    my ($file) = @_;
+
+    my $total_visits   = 0;
+    my $total_duration = 0;
+    my $nr_pos         = 0;
+    open (my $fh, "<", $file) || die "Could not open '$file': $!\n";
+    my $pid = open2(my $out, my $in, "./$program", -t => $MAX_TIME) ||
+        die "Could not fork/exec: $!\n";
+    # open2 already makes sure $in is flushing
+
+    eval {
+        my $line;
+        local $_;
+        while (<$fh>) {
+            print($in $_) || die "Write error to $program: $!";
+            while ($line = <$out>) {
+                last if $line =~/^\d/;
+            }
+            defined($line) || die "Unexpected EOF from $program";
+            my ($pos, $score, $duration, $visists) = $line =~ /^(\d+)\s+([+-]?\d+)\s+(\d+)\s+(\d+)\s*$/ or
+                die "Could not parse $program output: $line";
+            $score += 0;
+            "$pos $score\n" eq $_ || die "Wrong answer: $line";
+            #print "($pos, $score, $duration, $visists)\n";
+            $total_duration += $duration;
+            $total_visits   += $visists;
+            ++$nr_pos;
+        }
+        close($in);
+        while ($line = <$out>) {
+            last if $line =~/^\d/;
+        }
+        die "Spurious output from $program: $line" if defined $line;
+    };
+    my $err = $@;
+    waitpid( $pid, 0 );
+    if ($? == SIGALRM) {
+        printf("Test %s: Timed out\n", $file);
+    } else {
+        die $err if $err;
+        die "Unexped exit code $? from $program" if $? ;
+        printf("Test %s: avg time: %.3f, avg visits: %.0f, speed: %.0f Kpos/s\n", $file, $total_duration/$nr_pos, $total_visits / $nr_pos, $total_visits * 1000 / $total_duration);
+    }
+}
+
+# system("make $program") && die "make filed\n";
+test_file($_) for @ARGV;
