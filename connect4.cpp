@@ -18,9 +18,10 @@ class GetOpt {
     char const* optarg = nullptr;
 
   public:
-    int ind() const { return optind; }
-    char const* arg() const { return optarg; }
-    char option() const { return ch; }
+    int ind() const PURE { return optind; }
+    char const* arg() const PURE { return optarg; }
+    char const* next_arg() { return argv[optind++]; }
+    char option() const PURE { return ch; }
 
     GetOpt(std::string const options_, char const* const* argv_) :
         options(options_), argv(argv_) {}
@@ -64,7 +65,9 @@ using namespace std;
 int main([[maybe_unused]] int argc,
          char const* const* argv) {
     uint timeout = 0;
-    GetOpt options{"t:", argv};
+    bool weak = false;
+    bool minimax = false;
+    GetOpt options{"mwt:", argv};
     while (options.next()) {
         switch (options.option()) {
             case 't':
@@ -75,6 +78,8 @@ int main([[maybe_unused]] int argc,
                   timeout = tmp;
               }
               break;
+            case 'n': minimax = true; break;
+            case 'w': weak    = true; break;
             default:
               cerr << "usage: " << argv[0] << " [-t timeout]" << endl;
               exit(EXIT_FAILURE);
@@ -95,18 +100,16 @@ int main([[maybe_unused]] int argc,
         cout << pos;
         Position::clear_visits();
         auto start = chrono::steady_clock::now();
-        int score = pos.negamax();
+        int score;
+        if (minimax)
+            score = pos.negamax();
+        else if (weak)
+            score = pos.alphabeta(-1, +1);
+        else
+            score = pos.alphabeta(-MAX_SCORE, +MAX_SCORE);
         auto end = chrono::steady_clock::now();
         auto duration = chrono::duration_cast<chrono::nanoseconds>(end - start).count();
         cout << line << " " << score << " " << (duration+500)/1000 << " " << Position::nr_visits() << endl;
     }
     return 0;
-}
-
-uint64_t foo() {
-    int64_t a = Position::nr_visits();
-    asm("#aa");
-    auto v = Position::nr_visits();
-    asm("#bb");
-    return v+a;
 }

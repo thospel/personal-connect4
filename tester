@@ -10,13 +10,14 @@ my $MAX_TIME = 10;
 
 $| = 1;
 sub test_file {
-    my ($file) = @_;
+    my ($file, $weak) = @_;
 
     my $total_visits   = 0;
     my $total_duration = 0;
     my $nr_pos         = 0;
     open (my $fh, "<", $file) || die "Could not open '$file': $!\n";
-    my $pid = open2(my $out, my $in, "./$program", -t => $MAX_TIME) ||
+    my $pid = open2(my $out, my $in,
+                    "./$program", -t => $MAX_TIME, $weak ? "-w" : ()) ||
         die "Could not fork/exec: $!\n";
     # open2 already makes sure $in is flushing
 
@@ -32,7 +33,22 @@ sub test_file {
             my ($pos, $score, $duration, $visists) = $line =~ /^(\d+)\s+([+-]?\d+)\s+(\d+)\s+(\d+)\s*$/ or
                 die "Could not parse $program output: $line";
             $score += 0;
-            "$pos $score\n" eq $_ || die "Wrong answer: $line";
+            chomp;
+            s/^\Q$pos\E\s+// || die "Wrong position";
+            if ($weak) {
+                if ($_ > 0) {
+                    $score > 0 && $score <= $_ ||
+                        die "Wrong answer: $pos $_ but $program says $score";
+                } elsif ($_ < 0) {
+                    $score < 0 && $score >= $_ ||
+                        die "Wrong answer: $pos $_ but $program says $score";
+                } else {
+                    $score == 0 ||
+                        die "Wrong answer: $pos $_ but $program says $score";
+                }
+            } else {
+                $score == $_ || die "Wrong answer: $line $_ but $program says $score";
+            }
             #print "($pos, $score, $duration, $visists)\n";
             $total_duration += $duration;
             $total_visits   += $visists;
@@ -45,15 +61,18 @@ sub test_file {
         die "Spurious output from $program: $line" if defined $line;
     };
     my $err = $@;
+    kill TERM => $pid if $err;
     waitpid( $pid, 0 );
+    my $name = sprintf("%s %s", $file, $weak ? "weak  " : "strong");
     if ($? == SIGALRM) {
-        printf("Test %s: Timed out\n", $file);
+        printf("Test %s: Timed out\n", $name);
     } else {
         die $err if $err;
         die "Unexped exit code $? from $program" if $? ;
-        printf("Test %s: avg time: %.3f, avg visits: %.0f, speed: %.0f Kpos/s\n", $file, $total_duration/$nr_pos, $total_visits / $nr_pos, $total_visits * 1000 / $total_duration);
+        printf("Test %s: avg time: %.3f, avg visits: %.0f, speed: %.0f Kpos/s\n", $name, $total_duration/$nr_pos, $total_visits / $nr_pos, $total_visits * 1000 / $total_duration);
     }
 }
 
 # system("make $program") && die "make filed\n";
-test_file($_) for @ARGV;
+test_file($_) for @ARGV;	# Strong
+test_file($_, 1) for @ARGV;	# Weak

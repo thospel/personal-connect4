@@ -85,9 +85,9 @@ int Position::negamax() const {
     visit();
     int score = MAX_SCORE+1;
 
-    std::array<Position,WIDTH> position;
+    std::array<Position, WIDTH> position;
     int nr_positions = 0;
-    for (int x=0; x < WIDTH; ++x) {
+    for (int x = 0; x < WIDTH; ++x) {
         // Can we play here ?
         if (full(x)) continue;
         position[nr_positions] = play(x);
@@ -95,8 +95,7 @@ int Position::negamax() const {
         // std::cout << "Expand:\n" << position[nr_positions];
         auto w = position[nr_positions].won();
         // std::cout << "Won=" << w << "\n";
-        if (w)
-            return position[nr_positions].score();
+        if (w) return position[nr_positions].score();
         ++nr_positions;
     }
 
@@ -104,9 +103,53 @@ int Position::negamax() const {
     if (nr_positions == 0) return 0;
 
     // No immediate wins. Go deeper
-    for (int p=0; p<nr_positions; ++p) {
+    for (int p = 0; p<nr_positions; ++p) {
         int s = position[p].negamax();
         if (s < score) score = s;
     }
     return -score;
+}
+
+int Position::alphabeta(int alpha, int beta) const {
+    // std::cout << "Consider [" << alpha << ", " << beta << "]:\n" << *this;
+    visit();
+
+    std::array<Position, WIDTH> position;
+    int nr_positions = 0;
+    for (int x = 0; x < WIDTH; ++x) {
+        // Can we play here ?
+        if (full(x)) continue;
+        position[nr_positions] = play(x);
+        // Did we win ?
+        // std::cout << "Expand:\n" << position[nr_positions];
+        auto w = position[nr_positions].won();
+        // std::cout << "Won=" << w << "\n";
+        if (w) return position[nr_positions].score();
+        ++nr_positions;
+    }
+
+    // If we couldn't move it's a draw
+    if (nr_positions == 0) return 0;
+
+    // No immediate win. So the score is worse that the one for winning
+    int max = position[0].score() - 1;
+    if (beta > max) {
+        // We can't do better than max anyways, so lower beta
+        beta = max;
+        // Immediately return if the window closed
+        if (alpha >= beta) return beta;
+    }
+
+    // Explore moves
+    alpha = -alpha;
+    beta  = -beta;
+    for (int p = 0; p<nr_positions; ++p) {
+        int s = position[p].alphabeta(beta, alpha);
+        // Prune if we find better than the window
+        if (s <= beta) return -s;
+        // Found a value better than alpha (but worse than beta)
+        // Narrow the window since we only have to do better than this latest
+        if (s < alpha) alpha = s;
+    }
+    return -alpha;
 }

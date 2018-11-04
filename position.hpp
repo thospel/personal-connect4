@@ -106,6 +106,7 @@ class Position {
     }
 
     int negamax() const;
+    int alphabeta(int alpha, int beta) const;
 
     friend std::ostream& operator<<(std::ostream& os, Position const& pos) {
         char buffer[BOARD_BUFSIZE+1];
