@@ -3,6 +3,19 @@
 #include "position.hpp"
 
 uint64_t Position::nr_visits_;
+std::array<int, WIDTH> const Position::move_order_ = Position::generate_move_order();
+
+std::array<int, WIDTH> Position::generate_move_order() {
+    std::array<int, WIDTH> order;
+    int sum = (WIDTH-1) & ~1;
+    int base = sum / 2;
+    for (int i=0; i < WIDTH; ++i) {
+        order[i] = base;
+        sum ^=1;
+        base = sum - base;
+    }
+    return order;
+}
 
 bool Position::_won(Bitmap pos) {
     // horizontal
@@ -116,7 +129,7 @@ int Position::alphabeta(int alpha, int beta) const {
 
     std::array<Position, WIDTH> position;
     int nr_positions = 0;
-    for (int x = 0; x < WIDTH; ++x) {
+    for (int x: move_order_) {
         // Can we play here ?
         if (full(x)) continue;
         position[nr_positions] = play(x);
@@ -131,7 +144,8 @@ int Position::alphabeta(int alpha, int beta) const {
     // If we couldn't move it's a draw
     if (nr_positions == 0) return 0;
 
-    // No immediate win. So the score is worse that the one for winning
+    // No immediate win.
+    // So the score is at least 1 worse than the one for winning
     int max = position[0].score() - 1;
     if (beta > max) {
         // We can't do better than max anyways, so lower beta

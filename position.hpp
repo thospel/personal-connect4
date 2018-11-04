@@ -126,6 +126,8 @@ class Position {
 
   private:
     static uint64_t nr_visits_;
+    static std::array<int, WIDTH> const move_order_;
+    static std::array<int, WIDTH> generate_move_order();
 
     Position(Bitmap color, Bitmap mask): color_{color}, mask_{mask} {}
     static bool _won(Bitmap mask);

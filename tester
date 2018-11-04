@@ -6,7 +6,7 @@ use POSIX qw(SIGALRM);
 use IPC::Open2;
 
 my $program = "connect4";
-my $MAX_TIME = 10;
+my $MAX_TIME = 60;
 
 $| = 1;
 sub test_file {
@@ -21,6 +21,7 @@ sub test_file {
         die "Could not fork/exec: $!\n";
     # open2 already makes sure $in is flushing
 
+    my $name = sprintf("%s %s", $file, $weak ? "weak  " : "strong");
     eval {
         my $line;
         local $_;
@@ -47,7 +48,7 @@ sub test_file {
                         die "Wrong answer: $pos $_ but $program says $score";
                 }
             } else {
-                $score == $_ || die "Wrong answer: $line $_ but $program says $score";
+                $score == $_ || die "Wrong answer: $pos $_ but $program says $score";
             }
             #print "($pos, $score, $duration, $visists)\n";
             $total_duration += $duration;
@@ -63,13 +64,12 @@ sub test_file {
     my $err = $@;
     kill TERM => $pid if $err;
     waitpid( $pid, 0 );
-    my $name = sprintf("%s %s", $file, $weak ? "weak  " : "strong");
     if ($? == SIGALRM) {
         printf("Test %s: Timed out\n", $name);
     } else {
-        die $err if $err;
+        die "Test $name: $err" if $err;
         die "Unexped exit code $? from $program" if $? ;
-        printf("Test %s: avg time: %.3f, avg visits: %.0f, speed: %.0f Kpos/s\n", $name, $total_duration/$nr_pos, $total_visits / $nr_pos, $total_visits * 1000 / $total_duration);
+        printf("Test %s: avg time: %.3f, avg visits: %.1f, speed: %.0f Kpos/s\n", $name, $total_duration/$nr_pos, $total_visits / $nr_pos, $total_visits * 1000 / $total_duration);
     }
 }
 
