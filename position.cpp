@@ -3,6 +3,8 @@
 #include "position.hpp"
 
 uint64_t Position::nr_visits_;
+Transposition Position::transpositions_;
+
 std::array<int, WIDTH> const Position::move_order_ = Position::generate_move_order();
 
 std::array<int, WIDTH> Position::generate_move_order() {
@@ -123,6 +125,9 @@ int Position::negamax() const {
     return -score;
 }
 
+// actual_score <= alpha         THEN actual score <= return value <= alpha
+// actual score  >= beta         THEN actual score >= return value >= beta
+// alpha <= actual score <= beta THEN        return value = actual score
 int Position::alphabeta(int alpha, int beta) const {
     // std::cout << "Consider [" << alpha << ", " << beta << "]:\n" << *this;
     visit();
@@ -144,9 +149,16 @@ int Position::alphabeta(int alpha, int beta) const {
     // If we couldn't move it's a draw
     if (nr_positions == 0) return 0;
 
-    // No immediate win.
-    // So the score is at least 1 worse than the one for winning
-    int max = position[0].score() - 1;
+    int max;
+    auto val = Position::get(key());
+    if (val) {
+        max = val - (MAX_SCORE+2);
+        // std::cout << "Cached=" << max << "\n";
+    } else
+        // No immediate win.
+        // So the score is at least 1 worse than the one for winning
+        max = position[0].score() - 1;
+
     if (beta > max) {
         // We can't do better than max anyways, so lower beta
         beta = max;
@@ -165,5 +177,8 @@ int Position::alphabeta(int alpha, int beta) const {
         // Narrow the window since we only have to do better than this latest
         if (s < alpha) alpha = s;
     }
-    return -alpha;
+    alpha = -alpha;
+    // real value <= alpha, so we are storing an upper bound
+    set(key(), alpha + (MAX_SCORE+2));
+    return alpha;
 }

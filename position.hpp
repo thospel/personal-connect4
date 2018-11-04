@@ -10,26 +10,38 @@
 
 typedef uint64_t Bitmap;
 
+constexpr uint LOG2(size_t value) {
+    return value <= 1 ? 0 : 1+LOG2((value+1) / 2);
+}
+
 static int const WIDTH  = 7;
 static int const HEIGHT = 6;
 // Most number of stones one color can play
 // (one more for first player on odd area boards)
-static int const MAX_STONES = (WIDTH*HEIGHT+1)/2;	// 21
-static int const MAX_SCORE  = MAX_STONES+1-4;		// 18
+static int const MAX_STONES = (WIDTH*HEIGHT+1)/2;		// 21
+static int const MAX_SCORE  = MAX_STONES+1-4;			// 18
 static int const BOARD_BUFSIZE = (HEIGHT+2) * (WIDTH*2+2);	// 128
 static int const GUARD_BITS = 1;
 static int const USED_HEIGHT = HEIGHT + GUARD_BITS;
 static_assert(GUARD_BITS > 0, "There must be GUARD_BITS");
 static int const      BITS = WIDTH*USED_HEIGHT-GUARD_BITS;	// 48
-static int const  ALL_BITS = sizeof(Bitmap) * CHAR_BIT;	// 64
-static int const LEFT_BITS = ALL_BITS-BITS;		// 16
+static int const  KEY_BITS = BITS+1;				// 49
+static int const  ALL_BITS = sizeof(Bitmap) * CHAR_BIT;		// 64
+static int const LEFT_BITS = ALL_BITS-KEY_BITS;			// 15
 static_assert(LEFT_BITS >= 0, "Bitmap type is too small");
-static_assert((1 << LEFT_BITS) >= 2*MAX_SCORE+1, "No space for hash result");
+// negative score, positive scores, 0 and not found = 2*MAX_SCORE+2
+static int const SCORE_BITS = LOG2(2*MAX_SCORE+2);		// 6
+static_assert(SCORE_BITS <= LEFT_BITS, "No space for hash result");
 
 static Bitmap const ONE = 1;
 static Bitmap const TOP_BIT  = ONE << (HEIGHT-1);
 static Bitmap const BOT_BIT  = ONE;
 static Bitmap const FULL_MAP = -1;
+static Bitmap const KEY_MASK = (ONE << KEY_BITS) - 1;
+
+// 64 MB transposition table
+static size_t const TRANSPOSITION_BITS = 23;
+static size_t const TRANSPOSITION_SIZE = static_cast<size_t>(1) << TRANSPOSITION_BITS;
 
 inline int popcount(Bitmap value) {
 #ifdef __POPCNT__
@@ -42,6 +54,52 @@ inline int popcount(Bitmap value) {
     return __builtin_popcountll(value);
 #endif // __POPCNT__
 }
+
+class Transposition {
+  public:
+    void clear() {
+        entries_.fill(0);
+        // Make sure the empty board is not a hit
+        entries_[fast_hash(0)] = 1;
+        hits_ = 0;
+        misses_ = 0;
+    }
+    // Make sure the minimum value you set is 2
+    // The -1 and +1 in get and set is so that the generated code will only do
+    // a single conditional jump
+    // (because on a cache hit the compiler can now see the value is not 0)
+    // Since just before and after we do an offset by MAX_SCORE the +1 and -1
+    // will in fact be optimized away
+    ALWAYS_INLINE
+    void set(Bitmap key, int value) {
+        entries_[fast_hash(key)] = key | static_cast<Bitmap>(value-1) << KEY_BITS;
+    }
+    ALWAYS_INLINE
+    Bitmap get(Bitmap key) const {
+        auto value = entries_[fast_hash(key)];
+        if ((value & KEY_MASK) != key) {
+            // ++misses_;
+            return 0;
+        }
+        // ++hits_;
+        return 1 + (value >> KEY_BITS);
+    }
+    uint64_t hits()   const { return hits_; }
+    uint64_t misses() const { return misses_; }
+  private:
+    ALWAYS_INLINE
+    static Bitmap fast_hash(Bitmap key) {
+        static_assert(sizeof(key) == sizeof(LCM_MULTIPLIER),
+                      "Bitmap is not 64 bits. Find another multiplier");
+        key *= LCM_MULTIPLIER;
+        return key >> (ALL_BITS-TRANSPOSITION_BITS);
+    }
+    static uint64_t const LCM_MULTIPLIER = UINT64_C(6364136223846793005);
+
+    mutable uint64_t hits_;
+    mutable uint64_t misses_;
+    std::array<Bitmap, TRANSPOSITION_SIZE> entries_;
+};
 
 class Position {
   public:
@@ -94,6 +152,16 @@ class Position {
     int score() const {
         return MAX_STONES+1-popcount(color_);
     }
+    Bitmap key() const {
+        // This is indeed a unique key for a position
+        // Recover position: consider column + GUARD_BIT
+        // if of the form ^0+1*$ this is the mask and there was no color_ value
+        // else if of the form ^0*1+0 then the mask is all 1's starting just
+        // after the first 1 and _color can be recovered by subtraction
+        // after the
+        return color_ + mask_;
+    }
+
     void to_string(char *buf) const;
     std::string to_string() const {
         char buffer[BOARD_BUFSIZE+1];
@@ -120,12 +188,26 @@ class Position {
     }
     explicit operator bool() const { return mask_ != FULL_MAP; }
 
-    static void clear_visits() { nr_visits_ = 0; };
+    static void reset() {
+        nr_visits_ = 0;
+        transpositions_.clear();
+    };
     static void visit() { ++nr_visits_; };
     static uint64_t nr_visits() { return nr_visits_; };
+    static uint64_t hits  () { return transpositions_.hits  (); };
+    static uint64_t misses() { return transpositions_.misses(); };
+    ALWAYS_INLINE
+    static void set(Bitmap key, int value) {
+        transpositions_.set(key, value);
+    }
+    ALWAYS_INLINE
+    static Bitmap get(Bitmap key) {
+        return transpositions_.get(key);
+    }
 
   private:
     static uint64_t nr_visits_;
+    static Transposition transpositions_;
     static std::array<int, WIDTH> const move_order_;
     static std::array<int, WIDTH> generate_move_order();
 

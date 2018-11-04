@@ -78,7 +78,7 @@ int main([[maybe_unused]] int argc,
                   timeout = tmp;
               }
               break;
-            case 'n': minimax = true; break;
+            case 'm': minimax = true; break;
             case 'w': weak    = true; break;
             default:
               cerr << "usage: " << argv[0] << " [-t timeout]" << endl;
@@ -92,13 +92,12 @@ int main([[maybe_unused]] int argc,
 
     if (timeout) alarm(timeout);
     std::string line;
-    while (1) {
-        if (!getline(cin, line)) break;
+    while (getline(cin, line)) {
         auto space = line.find(' ');
         if (space != std::string::npos) line.resize(space);
         Position pos{line};
         cout << pos;
-        Position::clear_visits();
+        Position::reset();
         auto start = chrono::steady_clock::now();
         int score;
         if (minimax)
@@ -109,7 +108,12 @@ int main([[maybe_unused]] int argc,
             score = pos.alphabeta(-MAX_SCORE, +MAX_SCORE);
         auto end = chrono::steady_clock::now();
         auto duration = chrono::duration_cast<chrono::nanoseconds>(end - start).count();
+        // cout << "misses: " << Position::misses() << ", hits: " << Position::hits() << "\n";
         cout << line << " " << score << " " << (duration+500)/1000 << " " << Position::nr_visits() << endl;
     }
     return 0;
+}
+
+void bar(Transposition& T, uint64_t key, int val) {
+    T.set(key, (MAX_SCORE+2)-val);
 }
