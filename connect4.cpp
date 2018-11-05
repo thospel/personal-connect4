@@ -108,7 +108,7 @@ int main([[maybe_unused]] int argc,
             score = pos.alphabeta(-MAX_SCORE, +MAX_SCORE);
         auto end = chrono::steady_clock::now();
         auto duration = chrono::duration_cast<chrono::nanoseconds>(end - start).count();
-        // cout << "misses: " << Position::misses() << ", hits: " << Position::hits() << "\n";
+        cout << "misses: " << Position::misses() << ", hits: " << Position::hits() << "\n";
         cout << line << " " << score << " " << (duration+500)/1000 << " " << Position::nr_visits() << endl;
     }
     return 0;

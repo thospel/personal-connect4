@@ -39,8 +39,8 @@ static Bitmap const BOT_BIT  = ONE;
 static Bitmap const FULL_MAP = -1;
 static Bitmap const KEY_MASK = (ONE << KEY_BITS) - 1;
 
-// 64 MB transposition table
-static size_t const TRANSPOSITION_BITS = 23;
+// 4 MB transposition table
+static size_t const TRANSPOSITION_BITS = 19;
 static size_t const TRANSPOSITION_SIZE = static_cast<size_t>(1) << TRANSPOSITION_BITS;
 
 inline int popcount(Bitmap value) {
@@ -78,10 +78,10 @@ class Transposition {
     Bitmap get(Bitmap key) const {
         auto value = entries_[fast_hash(key)];
         if ((value & KEY_MASK) != key) {
-            // ++misses_;
+            ++misses_;
             return 0;
         }
-        // ++hits_;
+        ++hits_;
         return 1 + (value >> KEY_BITS);
     }
     uint64_t hits()   const { return hits_; }

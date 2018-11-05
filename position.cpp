@@ -167,6 +167,7 @@ int Position::alphabeta(int alpha, int beta) const {
     }
 
     // Explore moves
+    int current = MAX_SCORE+1;
     alpha = -alpha;
     beta  = -beta;
     for (int p = 0; p<nr_positions; ++p) {
@@ -175,10 +176,13 @@ int Position::alphabeta(int alpha, int beta) const {
         if (s <= beta) return -s;
         // Found a value better than alpha (but worse than beta)
         // Narrow the window since we only have to do better than this latest
-        if (s < alpha) alpha = s;
+        if (s < current) {
+            current = s;
+            if (s < alpha) alpha = s;
+        }
     }
-    alpha = -alpha;
+    current = -current;
     // real value <= alpha, so we are storing an upper bound
-    set(key(), alpha + (MAX_SCORE+2));
-    return alpha;
+    set(key(), current + (MAX_SCORE+2));
+    return current;
 }

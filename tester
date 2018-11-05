@@ -5,8 +5,34 @@ use warnings;
 use POSIX qw(SIGALRM);
 use IPC::Open2;
 
-my $program = "connect4";
-my $MAX_TIME = 60;
+my $VERSION = "1.004";
+
+my $PROGRAM = "connect4";
+my $TIMEOUT = 60;
+
+use Getopt::Long 2.24 qw(:config bundling require_order);
+
+die "Could not parse your command line. Try $0 -h\n" unless
+    GetOptions("timeout|t=o"	=> \$TIMEOUT,
+               "program|p=s"	=> \$PROGRAM,
+               "version!"	=> \my $version,
+               "U|unsafe!"	=> \my $unsafe,
+               "h|help!"	=> \my $help);
+
+if ($version) {
+    print<<"EOF";
+tester (personal-connect4) $VERSION
+EOF
+    exit 0;
+}
+if ($help) {
+    require Config;
+    $ENV{PATH} .= ":" unless $ENV{PATH} eq "";
+    $ENV{PATH} = "$ENV{PATH}$Config::Config{'installscript'}";
+    exec("perldoc", "-F", $unsafe ? "-U" : (), $0) || exit 1;
+    # make parser happy
+    %Config::Config = ();
+}
 
 $| = 1;
 sub test_file {
@@ -17,7 +43,7 @@ sub test_file {
     my $nr_pos         = 0;
     open (my $fh, "<", $file) || die "Could not open '$file': $!\n";
     my $pid = open2(my $out, my $in,
-                    "./$program", -t => $MAX_TIME, $weak ? "-w" : ()) ||
+                    "./$PROGRAM", -t => $TIMEOUT, $weak ? "-w" : ()) ||
         die "Could not fork/exec: $!\n";
     # open2 already makes sure $in is flushing
 
@@ -26,29 +52,29 @@ sub test_file {
         my $line;
         local $_;
         while (<$fh>) {
-            print($in $_) || die "Write error to $program: $!";
+            print($in $_) || die "Write error to $PROGRAM: $!";
             while ($line = <$out>) {
                 last if $line =~/^\d/;
             }
-            defined($line) || die "Unexpected EOF from $program";
+            defined($line) || die "Unexpected EOF from $PROGRAM";
             my ($pos, $score, $duration, $visists) = $line =~ /^(\d+)\s+([+-]?\d+)\s+(\d+)\s+(\d+)\s*$/ or
-                die "Could not parse $program output: $line";
+                die "Could not parse $PROGRAM output: $line";
             $score += 0;
             chomp;
             s/^\Q$pos\E\s+// || die "Wrong position";
             if ($weak) {
                 if ($_ > 0) {
                     $score > 0 && $score <= $_ ||
-                        die "Wrong answer: $pos $_ but $program says $score";
+                        die "Wrong answer: $pos $_ but $PROGRAM says $score";
                 } elsif ($_ < 0) {
                     $score < 0 && $score >= $_ ||
-                        die "Wrong answer: $pos $_ but $program says $score";
+                        die "Wrong answer: $pos $_ but $PROGRAM says $score";
                 } else {
                     $score == 0 ||
-                        die "Wrong answer: $pos $_ but $program says $score";
+                        die "Wrong answer: $pos $_ but $PROGRAM says $score";
                 }
             } else {
-                $score == $_ || die "Wrong answer: $pos $_ but $program says $score";
+                $score == $_ || die "Wrong answer: $pos $_ but $PROGRAM says $score";
             }
             #print "($pos, $score, $duration, $visists)\n";
             $total_duration += $duration;
@@ -59,7 +85,7 @@ sub test_file {
         while ($line = <$out>) {
             last if $line =~/^\d/;
         }
-        die "Spurious output from $program: $line" if defined $line;
+        die "Spurious output from $PROGRAM: $line" if defined $line;
     };
     my $err = $@;
     kill TERM => $pid if $err;
@@ -68,11 +94,80 @@ sub test_file {
         printf("Test %s: Timed out\n", $name);
     } else {
         die "Test $name: $err" if $err;
-        die "Unexped exit code $? from $program" if $? ;
+        die "Unexped exit code $? from $PROGRAM" if $? ;
         printf("Test %s: avg time: %.3f, avg visits: %.1f, speed: %.0f Kpos/s\n", $name, $total_duration/$nr_pos, $total_visits / $nr_pos, $total_visits * 1000 / $total_duration);
     }
 }
 
-# system("make $program") && die "make filed\n";
+# system("make $PROGRAM") && die "make filed\n";
 test_file($_) for @ARGV;	# Strong
 test_file($_, 1) for @ARGV;	# Weak
+__END__
+
+=head1 NAME
+
+tester - Run a connect4 benchmark
+
+=head1 SYNOPSIS
+
+ tester [-w] [--timeout|-t <timeout>] [--program|-p <program] {files}
+ tester [--version] [--unsafe] [-U] [-h] [--help]
+
+=head1 OPTIONS
+
+=over 4
+
+=item X<weak>-w
+
+Don't compute exact scores, only win/draw/loss
+
+=item X<timeout>-t, --timeout <timeout>
+
+Sets a timeout. Defaults to C<60>.
+
+=item X<program>-p, --program <program>
+
+Which program to benchmark. Defaults to C<connect4>.
+
+=item X<help>-h, --help
+
+Show this help.
+
+=item X<unsafe>-U, --unsafe
+
+Allow even root to run the perldoc.
+Remember, the reason this is off by default is because it B<IS> unsafe.
+
+=item X<version>--version
+
+Print version info.
+
+=back
+
+=head1 EXAMPLE
+
+A typical use would be:
+
+  tester Test_L*
+
+=head1 BUGS
+
+None known
+
+=head1 SEE ALSO
+
+L<connect4(1)>,
+
+=head1 AUTHOR
+
+Ton Hospel, E<lt>git@ton.iguana.beE<gt>
+
+=head1 COPYRIGHT AND LICENSE
+
+Copyright (C) 2018 by Ton Hospel
+
+This library is free software; you can redistribute it and/or modify
+it under the terms of version 3 of the GNU General Public License
+(see F<LICENSE>)
+
+=cut
