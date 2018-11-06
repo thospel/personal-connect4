@@ -64,6 +64,7 @@ using namespace std;
 
 int main([[maybe_unused]] int argc,
          char const* const* argv) {
+    printf("%lx\n", BOARD_MASK);
     uint timeout = 0;
     bool weak = false;
     bool minimax = false;
@@ -112,8 +113,4 @@ int main([[maybe_unused]] int argc,
         cout << line << " " << score << " " << (duration+500)/1000 << " " << Position::nr_visits() << endl;
     }
     return 0;
-}
-
-void bar(Transposition& T, uint64_t key, int val) {
-    T.set(key, (MAX_SCORE+2)-val);
 }

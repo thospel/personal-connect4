@@ -10,7 +10,7 @@
 
 typedef uint64_t Bitmap;
 
-constexpr uint LOG2(size_t value) {
+static constexpr uint LOG2(size_t value) {
     return value <= 1 ? 0 : 1+LOG2((value+1) / 2);
 }
 
@@ -38,6 +38,13 @@ static Bitmap const TOP_BIT  = ONE << (HEIGHT-1);
 static Bitmap const BOT_BIT  = ONE;
 static Bitmap const FULL_MAP = -1;
 static Bitmap const KEY_MASK = (ONE << KEY_BITS) - 1;
+
+static constexpr Bitmap BOTTOM(int n) {
+    return n == 0 ? 0 : (BOTTOM(n-1) << USED_HEIGHT) | ONE;
+}
+
+static Bitmap const BOTTOM_BITS = BOTTOM(WIDTH);
+static Bitmap const BOARD_MASK  = BOTTOM_BITS * ((ONE << HEIGHT)-1);
 
 // 4 MB transposition table
 static size_t const TRANSPOSITION_BITS = 19;
@@ -134,7 +141,14 @@ class Position {
     bool full(int x) const {
         return mask_ & top_bit(x);
     }
-    inline Position play(int x) const {
+    // Bitmap of positions where valid moves end up
+    Bitmap possible_bits() const {
+        return (mask_ + BOTTOM_BITS) & BOARD_MASK;
+    }
+    Bitmap opponent_winning_bits() const;
+    Bitmap winning_bits() const;
+    Bitmap sensible_bits() const;
+    Position play(int x) const {
         Bitmap mask  = mask_ | (mask_ + bot_bit(x));
         Bitmap color = color_ ^ mask;
         return Position{color, mask};
@@ -149,9 +163,9 @@ class Position {
     bool won() const { return _won(color_); }
     int nr_plies() const { return popcount(mask_); }
     Color to_move() const { return static_cast<Color>(nr_plies() & 1); }
-    int score() const {
-        return MAX_STONES+1-popcount(color_);
-    }
+    ALWAYS_INLINE
+    int score() const { return _score(color_); }
+    int opponent_score() const { return _score(color_ ^ mask_); }
     Bitmap key() const {
         // This is indeed a unique key for a position
         // Recover position: consider column + GUARD_BIT
@@ -208,13 +222,24 @@ class Position {
   private:
     static uint64_t nr_visits_;
     static Transposition transpositions_;
-    static std::array<int, WIDTH> const move_order_;
-    static std::array<int, WIDTH> generate_move_order();
+    static std::array<Bitmap, WIDTH> const move_order_;
+    static std::array<Bitmap, WIDTH> generate_move_order();
 
     Position(Bitmap color, Bitmap mask): color_{color}, mask_{mask} {}
     static bool _won(Bitmap mask);
     static Bitmap top_bit(int y) { return TOP_BIT << y * USED_HEIGHT; }
     static Bitmap bot_bit(int y) { return BOT_BIT << y * USED_HEIGHT; }
+    inline static int _score(Bitmap color) {
+        return MAX_STONES+1-popcount(color);
+    }
+
+    Bitmap _winning_bits(Bitmap color) const;
+    int _alphabeta(int alpha, int beta) const;
+    Position _play(Bitmap move_bit) const {
+        Bitmap mask  = mask_  | move_bit;
+        return Position{color_ ^ mask, mask};
+    }
+
     // bitboards are laid out column by column, top in msb,
     // one 0 guard bit inbetween
     // (0,0) is bottom left of board and is in the lsb of Bitmap
