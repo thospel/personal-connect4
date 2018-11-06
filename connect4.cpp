@@ -64,7 +64,6 @@ using namespace std;
 
 int main([[maybe_unused]] int argc,
          char const* const* argv) {
-    printf("%lx\n", BOARD_MASK);
     uint timeout = 0;
     bool weak = false;
     bool minimax = false;
@@ -103,10 +102,7 @@ int main([[maybe_unused]] int argc,
         int score;
         if (minimax)
             score = pos.negamax();
-        else if (weak)
-            score = pos.alphabeta(-1, +1);
-        else
-            score = pos.alphabeta(-MAX_SCORE, +MAX_SCORE);
+        else score = pos.solve(weak);
         auto end = chrono::steady_clock::now();
         auto duration = chrono::duration_cast<chrono::nanoseconds>(end - start).count();
         cout << "misses: " << Position::misses() << ", hits: " << Position::hits() << "\n";

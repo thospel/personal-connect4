@@ -63,6 +63,7 @@ inline int popcount(Bitmap value) {
 }
 
 class Transposition {
+  private:
   public:
     void clear() {
         entries_.fill(0);
@@ -169,6 +170,8 @@ class Position {
     int score1() const { return (nr_plies_left()+1) / 2; }
     // Score if win after 2 more ply
     int score2() const { return (nr_plies_left()+0) / 2; }
+    // Score if win after 3 more ply
+    int score3() const { return (nr_plies_left()-1) / 2; }
     Bitmap key() const {
         // This is indeed a unique key for a position
         // Recover position: consider column + GUARD_BIT
@@ -191,7 +194,7 @@ class Position {
     }
 
     int negamax() const;
-    int alphabeta(int alpha, int beta) const;
+    int solve(bool weak) const;
 
     friend std::ostream& operator<<(std::ostream& os, Position const& pos) {
         char buffer[BOARD_BUFSIZE+1];

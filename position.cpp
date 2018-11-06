@@ -282,7 +282,7 @@ int Position::_alphabeta(int alpha, int beta) const {
     return current;
 }
 
-int Position::alphabeta(int alpha, int beta) const {
+int Position::solve(bool weak) const {
     // No moves at all is a draw
     auto possible = possible_bits();
     if (!possible) {
@@ -304,8 +304,31 @@ int Position::alphabeta(int alpha, int beta) const {
         return 0;
     }
 
-    // Next move doesn't finish the game. Go full alpha/beta
-    auto score = _alphabeta(alpha, beta);
+    // We don't win in 1 ply, therefore:
+    int min = -score2();	// win after 2 more plies
+    int max =  score3();	// win after 3 more plies
+    if (weak) {
+        if (min < -1) min = -1;
+        if (max >  1) max =  1;
+    }
+
+    int score;
+    if (0) {
+        // Next move doesn't finish the game. Go full alpha/beta
+        score = _alphabeta(min, max);
+    } else {
+        // iteratively narrow the min-max exploration window
+        while (min < max) {
+            int med = min + (max - min)/2;
+            if (     med <= 0 && min/2 < med) med = min/2;
+            else if (med >= 0 && max/2 > med) med = max/2;
+            // Check if the actual score is greater than med
+            int r = _alphabeta(med, med + 1);
+            if (r <= med) max = r;
+            else min = r;
+        }
+        score = min;
+    }
     // std::cout << "Result [" << alpha << ", " << beta << "] = " << score << "\n" << *this;
     return score;
 }
