@@ -205,6 +205,7 @@ int Position::_alphabeta(int alpha, int beta) const {
     possible &= ~(opponent_win >> 1);
     if (!possible)
         // It seems that every move loses
+        // (draws were already excluded so there ARE moves)
         return -score2();
 
     int left = nr_plies_left();
@@ -234,14 +235,36 @@ int Position::_alphabeta(int alpha, int beta) const {
         if (alpha >= beta) return beta;
     }
 
+    // Explore moves
+    struct Entry {
+        Bitmap after_move;
+        int nr_threats;
+    };
+    std::array<Entry, WIDTH+1> order;
+    order[0].nr_threats = WIDTH*HEIGHT+1;
+    int pos = 1;
+    Bitmap my_stones = color_ ^ mask_;
+    // Insertion sort based on how many threats we have
+    for (int i=0; i<WIDTH; ++i) {
+        Bitmap move_bit = possible & move_order_[i];
+        if (!move_bit) continue;
+        // We can actually move there
+        Bitmap after_move = my_stones | move_bit;
+        int nr_threats = popcount(_winning_bits(after_move));
+        int p = pos;
+        while (nr_threats > order[p-1].nr_threats) {
+            order[p] = order[p-1];
+            --p;
+        }
+        order[p] = Entry{after_move, nr_threats};
+        ++pos;
+    }
     int current = MAX_SCORE+1;
     alpha = -alpha;
     beta  = -beta;
-    // Explore moves
-    for (auto order: move_order_) {
-        auto move_bit = possible & order;
-        if (!move_bit) continue;
-        auto position = _play(move_bit);
+    for (int p=1; p<pos; ++p) {
+        auto after_move = order[p].after_move;
+        auto position = Position{after_move, after_move | mask_};
         int s = position._alphabeta(beta, alpha);
         // std::cout << "Result [" << alpha << ", " << beta << "] = " << s << "\n" << position;
         // Prune if we find better than the window
