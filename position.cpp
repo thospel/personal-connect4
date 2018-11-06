@@ -196,7 +196,7 @@ int Position::_alphabeta(int alpha, int beta) const {
     if (forced_moves) {
         if (forced_moves & (forced_moves -1)) {
             // More than one forced move. We lose on the next move
-            return 1-score();
+            return -score2();
         }
         // Only one forced move. We must play it
         possible = forced_moves;
@@ -205,16 +205,14 @@ int Position::_alphabeta(int alpha, int beta) const {
     possible &= ~(opponent_win >> 1);
     if (!possible)
         // It seems that every move loses
-        return 1-score();
+        return -score2();
 
-    // Neither side wins in the next 2 moves.
-    // If these will fill the board it is a draw
-    // Need >= instead of =- since we don't bother to test if the next move
-    // is a draw in main alphabeta()
-    if (nr_plies() >= WIDTH * HEIGHT - 2) return 0;
+    int left = nr_plies_left();
+    // No need to detect draw (in 2 moves).
+    // If left = 2 then (below) min = max = 0 and we will immediately return 0
 
-    // Lower bound since opponen cannot win on his next move
-    int min = 2-score();
+    // Lower bound since opponent cannot win on his next move
+    int min = 1-left/2;
     if (alpha < min) {
         alpha = min;
         if (alpha >= beta) return alpha;
@@ -227,7 +225,7 @@ int Position::_alphabeta(int alpha, int beta) const {
         // std::cout << "Cached=" << max << "\n";
     } else
         // Upperbound since we cannot win on our next move
-        max = opponent_score()-2;
+        max = (left-1)/2;
 
     if (beta > max) {
         // We can't do better than max anyways, so lower beta
@@ -264,16 +262,26 @@ int Position::_alphabeta(int alpha, int beta) const {
 int Position::alphabeta(int alpha, int beta) const {
     // No moves at all is a draw
     auto possible = possible_bits();
-    if (!possible) return 0;
+    if (!possible) {
+        visit();
+        return 0;
+    }
 
     // If we can win in 1 move say we can win on the next move
     auto winning = winning_bits();
     if (winning & possible) {
         // std::cout << "Immediate win: " << winning << " " << possible << "\n";
-        return opponent_score()-1;
+        visit();
+        return score1();
     }
 
-    // Otherwise go full alpha/beta
+    // Next move is not a win and there was only 1 spot left to play so draw
+    if (nr_plies_left() == 1) {
+        visit();
+        return 0;
+    }
+
+    // Next move doesn't finish the game. Go full alpha/beta
     auto score = _alphabeta(alpha, beta);
     // std::cout << "Result [" << alpha << ", " << beta << "] = " << score << "\n" << *this;
     return score;

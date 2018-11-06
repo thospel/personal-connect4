@@ -162,10 +162,13 @@ class Position {
     ALWAYS_INLINE
     bool won() const { return _won(color_); }
     int nr_plies() const { return popcount(mask_); }
+    int nr_plies_left() const { return WIDTH * HEIGHT - nr_plies(); }
     Color to_move() const { return static_cast<Color>(nr_plies() & 1); }
-    ALWAYS_INLINE
-    int score() const { return _score(color_); }
-    int opponent_score() const { return _score(color_ ^ mask_); }
+    int score() const { return (nr_plies_left()+2) / 2; }
+    // Score if win after 1 more ply
+    int score1() const { return (nr_plies_left()+1) / 2; }
+    // Score if win after 2 more ply
+    int score2() const { return (nr_plies_left()+0) / 2; }
     Bitmap key() const {
         // This is indeed a unique key for a position
         // Recover position: consider column + GUARD_BIT
