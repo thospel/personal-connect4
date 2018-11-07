@@ -39,6 +39,7 @@ bool Position::_won(Bitmap pos) {
     return false;
 }
 
+inline
 Bitmap Position::_winning_bits(Bitmap color) const {
     // vertical (3 stones on top of each other)
     Bitmap r = (color << 1) & (color << 2) & (color << 3);

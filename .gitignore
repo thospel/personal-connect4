@@ -1,10 +1,12 @@
 connect4
+connect4-*
 git_time
 *.~*~
 *.S
 *.s
 core
 core.*
+blub*
 
 # Prerequisites
 *.d
