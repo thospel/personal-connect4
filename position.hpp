@@ -31,13 +31,16 @@ static int const LEFT_BITS = ALL_BITS-KEY_BITS;			// 15
 static_assert(LEFT_BITS >= 0, "Bitmap type is too small");
 // negative score, positive scores, 0 and not found = 2*MAX_SCORE+2
 static int const SCORE_BITS = LOG2(2*MAX_SCORE+2);		// 6
-static_assert(SCORE_BITS <= LEFT_BITS, "No space for hash result");
+static int const BEST_BITS  = LOG2(WIDTH);			// 3
+static_assert(SCORE_BITS+BEST_BITS <= LEFT_BITS, "No space for hash results");
 
 static Bitmap const ONE = 1;
 static Bitmap const TOP_BIT  = ONE << (HEIGHT-1);
 static Bitmap const BOT_BIT  = ONE;
 static Bitmap const FULL_MAP = -1;
-static Bitmap const KEY_MASK = (ONE << KEY_BITS) - 1;
+static Bitmap const KEY_MASK   = (ONE << KEY_BITS)   - 1;
+static Bitmap const SCORE_MASK = (ONE << SCORE_BITS) - 1;
+static Bitmap const BEST_MASK  = (ONE << BEST_BITS)  - 1;
 
 static constexpr Bitmap BOTTOM(int n) {
     return n == 0 ? 0 : (BOTTOM(n-1) << USED_HEIGHT) | ONE;
@@ -58,8 +61,13 @@ inline int popcount(Bitmap value) {
 #else  // __POPCNT__
     static_assert(sizeof(Bitmap) == sizeof(unsigned long),
                   "Bitmap is not unsigned long");
-    return __builtin_popcountll(value);
+    return __builtin_popcountl(value);
 #endif // __POPCNT__
+}
+inline int clz(Bitmap value) {
+    static_assert(sizeof(Bitmap) == sizeof(unsigned long),
+                  "Bitmap is not unsigned long");
+    return __builtin_clzl(value);
 }
 
 class Transposition {
@@ -72,25 +80,21 @@ class Transposition {
         hits_ = 0;
         misses_ = 0;
     }
-    // Make sure the minimum value you set is 2
-    // The -1 and +1 in get and set is so that the generated code will only do
-    // a single conditional jump
-    // (because on a cache hit the compiler can now see the value is not 0)
-    // Since just before and after we do an offset by MAX_SCORE the +1 and -1
-    // will in fact be optimized away
     ALWAYS_INLINE
-    void set(Bitmap key, int value) {
-        entries_[fast_hash(key)] = key | static_cast<Bitmap>(value-1) << KEY_BITS;
+    void set(Bitmap key, int value, int best) {
+        entries_[fast_hash(key)] = key | static_cast<Bitmap>(best) << KEY_BITS | static_cast<Bitmap>(value + (MAX_SCORE+1)) << (KEY_BITS+BEST_BITS);
     }
     ALWAYS_INLINE
-    Bitmap get(Bitmap key) const {
+    bool get(Bitmap key, int& score, int& best) const {
         auto value = entries_[fast_hash(key)];
         if ((value & KEY_MASK) != key) {
             ++misses_;
-            return 0;
+            return false;
         }
         ++hits_;
-        return 1 + (value >> KEY_BITS);
+        score = static_cast<int>(value >> (KEY_BITS+BEST_BITS)) - (MAX_SCORE+1);
+        best = (value >> KEY_BITS) & BEST_MASK;
+        return true;
     }
     uint64_t hits()   const { return hits_; }
     uint64_t misses() const { return misses_; }
@@ -217,12 +221,12 @@ class Position {
     static uint64_t hits  () { return transpositions_.hits  (); };
     static uint64_t misses() { return transpositions_.misses(); };
     ALWAYS_INLINE
-    static void set(Bitmap key, int value) {
-        transpositions_.set(key, value);
+    static void set(Bitmap key, int value, int best) {
+        transpositions_.set(key, value, best);
     }
     ALWAYS_INLINE
-    static Bitmap get(Bitmap key) {
-        return transpositions_.get(key);
+    static bool get(Bitmap key, int& score, int& best) {
+        return transpositions_.get(key, score, best);
     }
 
   private:

@@ -220,14 +220,26 @@ int Position::_alphabeta(int alpha, int beta) const {
         if (alpha >= beta) return alpha;
     }
 
-    int max;
-    auto val = Position::get(key());
-    if (val) {
-        max = val - (MAX_SCORE+2);
-        // std::cout << "Cached=" << max << "\n";
-    } else
+    struct Entry {
+        Bitmap after_move;
+        int nr_threats;
+    };
+    std::array<Entry, WIDTH+1> order;
+    int pos = 1;
+    int max, best;
+    Bitmap best_bit;
+    Bitmap my_stones = color_ ^ mask_;
+    if (Position::get(key(), max, best)) {
+        // std::cout << "Cached score=" << max << ", best=" << best << "\n";
+        // best_bit = 0;
+        best_bit = ((ONE << HEIGHT) -1) << best * USED_HEIGHT & possible;
+        order[pos++] = Entry{my_stones | best_bit, WIDTH*HEIGHT+1};
+    } else {
         // Upperbound since we cannot win on our next move
         max = (left-1)/2;
+        best_bit = 0;
+        order[0].nr_threats = WIDTH*HEIGHT+1;
+    }
 
     if (beta > max) {
         // We can't do better than max anyways, so lower beta
@@ -237,18 +249,10 @@ int Position::_alphabeta(int alpha, int beta) const {
     }
 
     // Explore moves
-    struct Entry {
-        Bitmap after_move;
-        int nr_threats;
-    };
-    std::array<Entry, WIDTH+1> order;
-    order[0].nr_threats = WIDTH*HEIGHT+1;
-    int pos = 1;
-    Bitmap my_stones = color_ ^ mask_;
     // Insertion sort based on how many threats we have
     for (int i=0; i<WIDTH; ++i) {
         Bitmap move_bit = possible & move_order_[i];
-        if (!move_bit) continue;
+        if (!move_bit || move_bit == best_bit) continue;
         // We can actually move there
         Bitmap after_move = my_stones | move_bit;
         int nr_threats = popcount(_winning_bits(after_move));
@@ -261,6 +265,7 @@ int Position::_alphabeta(int alpha, int beta) const {
         ++pos;
     }
     int current = MAX_SCORE+1;
+    Bitmap move = 0;
     alpha = -alpha;
     beta  = -beta;
     for (int p=1; p<pos; ++p) {
@@ -274,12 +279,15 @@ int Position::_alphabeta(int alpha, int beta) const {
         // Narrow the window since we only have to do better than this latest
         if (s < current) {
             current = s;
+            move = after_move;
             if (s < alpha) alpha = s;
         }
     }
     current = -current;
+    move ^= my_stones;
+    best = ((ALL_BITS-1) - clz(move)) / USED_HEIGHT;;
     // real value <= alpha, so we are storing an upper bound
-    set(key(), current + (MAX_SCORE+2));
+    set(key(), current, best);
     return current;
 }
 
