@@ -3,6 +3,8 @@
 #include "position.hpp"
 
 uint64_t Position::nr_visits_;
+uint64_t Position::hits_;
+uint64_t Position::misses_;
 Transposition Position::transpositions_;
 
 std::array<Bitmap, WIDTH> const Position::move_order_ = Position::generate_move_order();
@@ -185,6 +187,11 @@ int Position::negamax() const {
 // alpha <= actual score <= beta THEN        return value = actual score
 int Position::_alphabeta(int alpha, int beta) const {
     // std::cout << "Consider [" << alpha << ", " << beta << "]:\n" << *this;
+
+    auto transposition = transposition_entry();
+    __builtin_prefetch(transposition);
+    asm("");
+
     visit();
 
     auto possible = possible_bits();
@@ -229,12 +236,14 @@ int Position::_alphabeta(int alpha, int beta) const {
     int max, best;
     Bitmap best_bit;
     Bitmap my_stones = color_ ^ mask_;
-    if (Position::get(key(), max, best)) {
+    if (transposition->get(key(), max, best)) {
+        hit();
         // std::cout << "Cached score=" << max << ", best=" << best << "\n";
         // best_bit = 0;
         best_bit = ((ONE << HEIGHT) -1) << best * USED_HEIGHT & possible;
         order[pos++] = Entry{my_stones | best_bit, WIDTH*HEIGHT+1};
     } else {
+        miss();
         // Upperbound since we cannot win on our next move
         max = (left-1)/2;
         best_bit = 0;
@@ -287,7 +296,7 @@ int Position::_alphabeta(int alpha, int beta) const {
     move ^= my_stones;
     best = ((ALL_BITS-1) - clz(move)) / USED_HEIGHT;;
     // real value <= alpha, so we are storing an upper bound
-    set(key(), current, best);
+    transposition->set(key(), current, best);
     return current;
 }
 

@@ -71,33 +71,41 @@ inline int clz(Bitmap value) {
 }
 
 class Transposition {
-  private:
   public:
-    void clear() {
-        entries_.fill(0);
-        // Make sure the empty board is not a hit
-        entries_[fast_hash(0)] = 1;
-        hits_ = 0;
-        misses_ = 0;
-    }
-    ALWAYS_INLINE
-    void set(Bitmap key, int value, int best) {
-        entries_[fast_hash(key)] = key | static_cast<Bitmap>(best) << KEY_BITS | static_cast<Bitmap>(value + (MAX_SCORE+1)) << (KEY_BITS+BEST_BITS);
-    }
-    ALWAYS_INLINE
-    bool get(Bitmap key, int& score, int& best) const {
-        auto value = entries_[fast_hash(key)];
-        if ((value & KEY_MASK) != key) {
-            ++misses_;
-            return false;
+    struct value_type {
+        friend Transposition;
+      public:
+        value_type() {}
+        ALWAYS_INLINE
+        void set(Bitmap key, int value, int best) {
+        value_ =
+            key |
+            static_cast<Bitmap>(best) << KEY_BITS |
+            static_cast<Bitmap>(value + (MAX_SCORE+1)) << (KEY_BITS+BEST_BITS);
         }
-        ++hits_;
-        score = static_cast<int>(value >> (KEY_BITS+BEST_BITS)) - (MAX_SCORE+1);
-        best = (value >> KEY_BITS) & BEST_MASK;
-        return true;
+        ALWAYS_INLINE
+        bool get(Bitmap key, int& score, int& best) const {
+            if ((value_ & KEY_MASK) != key) return false;
+            score = static_cast<int>(value_ >> (KEY_BITS+BEST_BITS)) - (MAX_SCORE+1);
+            best = (value_ >> KEY_BITS) & BEST_MASK;
+            return true;
+        }
+
+      private:
+        explicit value_type(Bitmap value): value_{value} {}
+        Bitmap value_;
+    };
+    void clear() {
+        entries_.fill(value_type{0});
+        // Make sure the empty board is not a hit
+        entries_[fast_hash(0)] = value_type{1};
     }
-    uint64_t hits()   const { return hits_; }
-    uint64_t misses() const { return misses_; }
+    value_type* entry(Bitmap key) {
+        return &entries_[fast_hash(key)];
+    }
+    value_type const* entry(Bitmap key) const {
+        return &entries_[fast_hash(key)];
+    }
   private:
     ALWAYS_INLINE
     static Bitmap fast_hash(Bitmap key) {
@@ -108,9 +116,7 @@ class Transposition {
     }
     static uint64_t const LCM_MULTIPLIER = UINT64_C(6364136223846793005);
 
-    mutable uint64_t hits_;
-    mutable uint64_t misses_;
-    std::array<Bitmap, TRANSPOSITION_SIZE> entries_;
+    std::array<value_type, TRANSPOSITION_SIZE> entries_;
 };
 
 class Position {
@@ -214,24 +220,30 @@ class Position {
 
     static void reset() {
         nr_visits_ = 0;
+        hits_      = 0;
+        misses_    = 0;
         transpositions_.clear();
     };
+    ALWAYS_INLINE
     static void visit() { ++nr_visits_; };
+    ALWAYS_INLINE
+    static void hit() { ++hits_; };
+    ALWAYS_INLINE
+    static void miss() { ++misses_; };
+
     static uint64_t nr_visits() { return nr_visits_; };
-    static uint64_t hits  () { return transpositions_.hits  (); };
-    static uint64_t misses() { return transpositions_.misses(); };
+    static uint64_t hits()      { return hits_; }
+    static uint64_t misses()    { return misses_; }
     ALWAYS_INLINE
-    static void set(Bitmap key, int value, int best) {
-        transpositions_.set(key, value, best);
-    }
-    ALWAYS_INLINE
-    static bool get(Bitmap key, int& score, int& best) {
-        return transpositions_.get(key, score, best);
+    Transposition::value_type* transposition_entry() const {
+        return transpositions_.entry(key());
     }
 
   private:
     static uint64_t nr_visits_;
     static Transposition transpositions_;
+    static uint64_t hits_;
+    static uint64_t misses_;
     static std::array<Bitmap, WIDTH> const move_order_;
     static std::array<Bitmap, WIDTH> generate_move_order();
 
