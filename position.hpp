@@ -1,3 +1,4 @@
+#include <array>
 #include <iostream>
 #include <thread>
 
@@ -16,9 +17,10 @@ static constexpr uint LOG2(size_t value) {
 
 static int const WIDTH  = 7;
 static int const HEIGHT = 6;
+static int const AREA   = WIDTH*HEIGHT;				// 42
 // Most number of stones one color can play
 // (one more for first player on odd area boards)
-static int const MAX_STONES = (WIDTH*HEIGHT+1)/2;		// 21
+static int const MAX_STONES = (AREA+1)/2;			// 21
 static int const MAX_SCORE  = MAX_STONES+1-4;			// 18
 static int const BOARD_BUFSIZE = (HEIGHT+2) * (WIDTH*2+2);	// 128
 static int const GUARD_BITS = 1;
@@ -42,15 +44,25 @@ static Bitmap const KEY_MASK   = (ONE << KEY_BITS)   - 1;
 static Bitmap const SCORE_MASK = (ONE << SCORE_BITS) - 1;
 static Bitmap const BEST_MASK  = (ONE << BEST_BITS)  - 1;
 
-static constexpr Bitmap BOTTOM(int n) {
-    return n == 0 ? 0 : (BOTTOM(n-1) << USED_HEIGHT) | ONE;
+static constexpr Bitmap BOTTOM(Bitmap model = ONE, int n=WIDTH) {
+    return n == 0 ? 0 : (BOTTOM(model, n-1) << USED_HEIGHT) | model;
+}
+static constexpr Bitmap ALTERNATING_ROWS(Bitmap row0, Bitmap row1, 
+                                         int n=WIDTH) {
+    return 
+        n == 0 ? 0 : 
+        ALTERNATING_ROWS(row0, row1, n-1) << USED_HEIGHT | (n%2 ? row0 : row1);
 }
 
-static Bitmap const BOTTOM_BITS = BOTTOM(WIDTH);
+static Bitmap const BOTTOM_BITS = BOTTOM();
 static Bitmap const BOARD_MASK  = BOTTOM_BITS * ((ONE << HEIGHT)-1);
+static Bitmap const alternating_rows[2] = {
+    ALTERNATING_ROWS((ONE << HEIGHT)-1, 0),
+    ALTERNATING_ROWS(                0, (ONE << HEIGHT)-1),
+};
 
 // 4 MB transposition table
-static size_t const TRANSPOSITION_BITS = 19;
+static size_t const TRANSPOSITION_BITS = 23;
 static size_t const TRANSPOSITION_SIZE = static_cast<size_t>(1) << TRANSPOSITION_BITS;
 
 inline int popcount(Bitmap value) {
@@ -95,16 +107,17 @@ class Transposition {
         explicit value_type(Bitmap value): value_{value} {}
         Bitmap value_;
     };
+    Transposition(): entries_{TRANSPOSITION_SIZE * sizeof(value_type), 0} {}
     void clear() {
-        entries_.fill(value_type{0});
+        entries_.zero();
         // Make sure the empty board is not a hit
-        entries_[fast_hash(0)] = value_type{1};
+        *entry(0) = value_type{static_cast<Bitmap>(-1)};
     }
     value_type* entry(Bitmap key) {
-        return &entries_[fast_hash(key)];
+        return &reinterpret_cast<value_type*>(entries_.base())[fast_hash(key)];
     }
     value_type const* entry(Bitmap key) const {
-        return &entries_[fast_hash(key)];
+        return &reinterpret_cast<value_type const*>(entries_.base())[fast_hash(key)];
     }
   private:
     ALWAYS_INLINE
@@ -116,7 +129,7 @@ class Transposition {
     }
     static uint64_t const LCM_MULTIPLIER = UINT64_C(6364136223846793005);
 
-    std::array<value_type, TRANSPOSITION_SIZE> entries_;
+    Mmap entries_;
 };
 
 class Position {
@@ -173,7 +186,7 @@ class Position {
     ALWAYS_INLINE
     bool won() const { return _won(color_); }
     int nr_plies() const { return popcount(mask_); }
-    int nr_plies_left() const { return WIDTH * HEIGHT - nr_plies(); }
+    int nr_plies_left() const { return AREA - nr_plies(); }
     Color to_move() const { return static_cast<Color>(nr_plies() & 1); }
     int score() const { return (nr_plies_left()+2) / 2; }
     // Score if win after 1 more ply

@@ -4,6 +4,8 @@ use warnings;
 
 use POSIX qw(SIGALRM);
 use IPC::Open2;
+use File::Copy qw(copy);
+use Sys::Hostname;
 
 my $VERSION = "1.004";
 
@@ -14,7 +16,8 @@ use Getopt::Long 2.24 qw(:config bundling require_order);
 
 die "Could not parse your command line. Try $0 -h\n" unless
     GetOptions("timeout|t=o"	=> \$TIMEOUT,
-               "program|p=s"	=> \$PROGRAM,
+               "p|program=s"	=> \$PROGRAM,
+               "P|private!"	=> \my $private,
                "version!"	=> \my $version,
                "U|unsafe!"	=> \my $unsafe,
                "h|help!"	=> \my $help);
@@ -32,6 +35,23 @@ if ($help) {
     exec("perldoc", "-F", $unsafe ? "-U" : (), $0) || exit 1;
     # make parser happy
     %Config::Config = ();
+}
+
+my $host = hostname();
+$host =~ s/\..*//;
+
+my $unlink;
+if ($private) {
+    my $new_program = "$PROGRAM-$host.$$";
+    copy($PROGRAM, $new_program) ||
+        die "Could not copy '$PROGRAM' to '$new_program': $!";
+    $PROGRAM = $new_program;
+    $unlink = 1;
+    chmod(0700, $new_program) || die "Could not chmod '$new_program': $!";
+}
+
+END {
+    unlink($PROGRAM) if $unlink;
 }
 
 $| = 1;
@@ -110,7 +130,7 @@ tester - Run a connect4 benchmark
 
 =head1 SYNOPSIS
 
- tester [-w] [--timeout|-t <timeout>] [--program|-p <program] {files}
+ tester [-w] [--timeout|-t <timeout>] [--program|-p <program] [-P|--private] {files}
  tester [--version] [--unsafe] [-U] [-h] [--help]
 
 =head1 OPTIONS
@@ -128,6 +148,10 @@ Sets a timeout. Defaults to C<60>.
 =item X<program>-p, --program <program>
 
 Which program to benchmark. Defaults to C<connect4>.
+
+=item X<private>-P, --private
+
+Make a temporary private copy of F<program> before running tests. This makes sure you can still do new compiles while the tests are running without the later tests picking up the new version of the program. The copy is deleted at the end of the tests.
 
 =item X<help>-h, --help
 

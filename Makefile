@@ -42,4 +42,4 @@ clean:
 	rm -f *.o *.S *.s connect4 core
 
 bench benchmark: connect4
-	./tester Test_L*
+	./tester -P Test_L*

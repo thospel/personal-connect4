@@ -92,3 +92,18 @@ extern bool FATAL;
 
 std::string time_string(time_t time);
 std::string time_string();
+
+#include <cstddef>
+
+class Mmap {
+  public:
+    Mmap(size_t length, bool huge=0);
+    ~Mmap();
+    void zero();
+    void      * base()       { return map_; }
+    void const* base() const { return map_; }
+  private:
+    size_t length_;
+    size_t allocated_;
+    void* map_;
+};

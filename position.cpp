@@ -190,6 +190,7 @@ int Position::_alphabeta(int alpha, int beta) const {
 
     auto transposition = transposition_entry();
     __builtin_prefetch(transposition);
+    // Avoid the prefetch being moved down
     asm("");
 
     visit();
@@ -209,7 +210,7 @@ int Position::_alphabeta(int alpha, int beta) const {
         // Only one forced move. We must play it
         possible = forced_moves;
     }
-    // Avoid playing jus below a winning move for the opponent
+    // Avoid playing just below a winning move for the opponent
     possible &= ~(opponent_win >> 1);
     if (!possible)
         // It seems that every move loses
@@ -241,13 +242,13 @@ int Position::_alphabeta(int alpha, int beta) const {
         // std::cout << "Cached score=" << max << ", best=" << best << "\n";
         // best_bit = 0;
         best_bit = ((ONE << HEIGHT) -1) << best * USED_HEIGHT & possible;
-        order[pos++] = Entry{my_stones | best_bit, WIDTH*HEIGHT+1};
+        order[pos++] = Entry{my_stones | best_bit, 2*(AREA+1)};
     } else {
         miss();
         // Upperbound since we cannot win on our next move
         max = (left-1)/2;
         best_bit = 0;
-        order[0].nr_threats = WIDTH*HEIGHT+1;
+        order[0].nr_threats = 2*(AREA+1);
     }
 
     if (beta > max) {
@@ -258,20 +259,35 @@ int Position::_alphabeta(int alpha, int beta) const {
     }
 
     // Explore moves
-    // Insertion sort based on how many threats we have
-    for (int i=0; i<WIDTH; ++i) {
-        Bitmap move_bit = possible & move_order_[i];
-        if (!move_bit || move_bit == best_bit) continue;
-        // We can actually move there
-        Bitmap after_move = my_stones | move_bit;
-        int nr_threats = popcount(_winning_bits(after_move));
-        int p = pos;
-        while (nr_threats > order[p-1].nr_threats) {
-            order[p] = order[p-1];
-            --p;
+    if (best_bit) {
+        // If we got a best move from the cache the ordering isn't so important
+        // It causes some more visits due to bad ordering for the rest of the
+        // moves but the speedup is still worth it
+        for (int i=0; i<WIDTH; ++i) {
+            Bitmap move_bit = possible & move_order_[i];
+            if (!move_bit || move_bit == best_bit) continue;
+            // We can actually move there
+            order[pos++].after_move = my_stones | move_bit;
         }
-        order[p] = Entry{after_move, nr_threats};
-        ++pos;
+    } else {
+        // Insertion sort based on how many threats we have
+        for (int i=0; i<WIDTH; ++i) {
+            Bitmap move_bit = possible & move_order_[i];
+            if (!move_bit) continue;
+            // We can actually move there
+            Bitmap after_move = my_stones | move_bit;
+            Bitmap winning_bits = _winning_bits(after_move);
+            // Bonus for stacked winning bits saves visits but still slower.
+            // int nr_threats = 2*popcount(winning_bits)+((winning_bits & winning_bits >> 1) != 0);
+            int nr_threats = popcount(winning_bits);
+            int p = pos;
+            while (nr_threats > order[p-1].nr_threats) {
+                order[p] = order[p-1];
+                --p;
+            }
+            order[p] = Entry{after_move, nr_threats};
+            ++pos;
+        }
     }
     int current = MAX_SCORE+1;
     Bitmap move = 0;
@@ -322,7 +338,7 @@ int Position::solve(bool weak) const {
         return 0;
     }
 
-    // We don't win in 1 ply, therefore:
+    // Game doesn't finish in 1 ply, therefore:
     int min = -score2();	// win after 2 more plies
     int max =  score3();	// win after 3 more plies
     if (weak) {

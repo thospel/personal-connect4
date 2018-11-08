@@ -4,9 +4,11 @@
 #include <system_error>
 
 #include <ctime>
+#include <cstring>
 
 #include <sys/types.h>
 #include <unistd.h>
+#include <sys/mman.h>
 
 std::string const PID{std::to_string(getpid())};
 std::string const VCS_COMMIT{STRINGIFY(COMMIT)};
@@ -70,4 +72,34 @@ time_t now() {
 
 std::string time_string() {
     return _time_string(_now());
+}
+
+// Huge pages allocate will fail if you don't have them.
+// So for 64M of huge pages you will need to do something like:
+//     echo 32 > /proc/sys/vm/nr_hugepages 
+#ifdef MAP_HUGETLB
+# define HUGE	MAP_HUGETLB
+#else
+# define HUGE	0
+#endif
+Mmap::Mmap(size_t length, bool huge) : length_{length}, allocated_{0} {
+    if (!HUGE && huge) throw_logic("No huge page support on this system");
+    map_ = mmap(NULL, length, PROT_READ | PROT_WRITE,
+                MAP_PRIVATE|MAP_ANONYMOUS|(huge ? HUGE : 0), -1, 0);
+    if (map_ == MAP_FAILED)
+        throw_errno(huge ? "Could not mmap HUGE" : "Could not mmap");
+}
+
+Mmap::~Mmap() {
+    int rc = munmap(map_, length_);
+    // This should be impossible and will call terminate if it happens
+    if (rc)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wterminate"
+        throw_errno("Could not munmap");
+#pragma GCC diagnostic pop
+}
+
+void Mmap::zero() {
+    memset(map_, 0, length_);
 }
