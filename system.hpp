@@ -6,7 +6,7 @@
 #ifdef __GNUC__
 # define RESTRICT	 __restrict__
 # define NOINLINE	 __attribute__((__noinline__))
-# define ALWAYS_INLINE	 __attribute__((always_inline))
+# define ALWAYS_INLINE	 __attribute__((always_inline)) inline
 # define FLATTEN	 __attribute__((flatten))
 # define LIKELY(x)	 __builtin_expect(!!(x),true)
 # define UNLIKELY(x)	 __builtin_expect(!!(x),false)
@@ -30,7 +30,7 @@
 #else // __GNUC__
 # define RESTRICT
 # define NOINLINE
-# define ALWAYS_INLINE
+# define ALWAYS_INLINE	inline
 # define FLATTEN
 # define LIKELY(x)	(x)
 # define UNLIKELY(x)	(x)

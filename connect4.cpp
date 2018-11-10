@@ -65,9 +65,10 @@ using namespace std;
 int main([[maybe_unused]] int argc,
          char const* const* argv) {
     uint timeout = 0;
-    bool weak = false;
-    bool minimax = false;
-    GetOpt options{"mwt:", argv};
+    bool principal = false;
+    bool weak      = false;
+    bool minimax   = false;
+    GetOpt options{"mwpt:", argv};
     while (options.next()) {
         switch (options.option()) {
             case 't':
@@ -78,8 +79,9 @@ int main([[maybe_unused]] int argc,
                   timeout = tmp;
               }
               break;
-            case 'm': minimax = true; break;
-            case 'w': weak    = true; break;
+            case 'm': minimax   = true; break;
+            case 'p': principal = true; break;
+            case 'w': weak      = true; break;
             default:
               cerr << "usage: " << argv[0] << " [-t timeout]" << endl;
               exit(EXIT_FAILURE);
@@ -98,6 +100,7 @@ int main([[maybe_unused]] int argc,
         Position pos{line};
         cout << pos;
         Position::reset();
+        pos.set_depth();
         auto start = chrono::steady_clock::now();
         int score;
         if (minimax)
@@ -107,6 +110,14 @@ int main([[maybe_unused]] int argc,
         auto duration = chrono::duration_cast<chrono::nanoseconds>(end - start).count();
         cout << "misses: " << Position::misses() << ", hits: " << Position::hits() << "\n";
         cout << line << " " << score << " " << (duration+500)/1000 << " " << Position::nr_visits() << endl;
+        if (principal) {
+            auto pv = pos.principal_variation(score, weak);
+            auto p = pos;
+            for (auto move: pv) {
+                p = p.play(move);
+                std::cout << move+1 << "\n" << p;
+            }
+        }
     }
     return 0;
 }

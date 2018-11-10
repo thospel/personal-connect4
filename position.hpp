@@ -1,6 +1,7 @@
 #include <array>
 #include <iostream>
 #include <thread>
+#include <vector>
 
 #include <cstring>
 #include <cstdint>
@@ -10,10 +11,14 @@
 #include "system.hpp"
 
 typedef uint64_t Bitmap;
+std::string to_bits(Bitmap bitmap);
+// std::ostream& operator<<(std::ostream& os, Bitmap bitmap);
 
 static constexpr uint LOG2(size_t value) {
     return value <= 1 ? 0 : 1+LOG2((value+1) / 2);
 }
+
+static int const INDENT = 2;
 
 static int const WIDTH  = 7;
 static int const HEIGHT = 6;
@@ -47,10 +52,10 @@ static Bitmap const BEST_MASK  = (ONE << BEST_BITS)  - 1;
 static constexpr Bitmap BOTTOM(Bitmap model = ONE, int n=WIDTH) {
     return n == 0 ? 0 : (BOTTOM(model, n-1) << USED_HEIGHT) | model;
 }
-static constexpr Bitmap ALTERNATING_ROWS(Bitmap row0, Bitmap row1, 
+static constexpr Bitmap ALTERNATING_ROWS(Bitmap row0, Bitmap row1,
                                          int n=WIDTH) {
-    return 
-        n == 0 ? 0 : 
+    return
+        n == 0 ? 0 :
         ALTERNATING_ROWS(row0, row1, n-1) << USED_HEIGHT | (n%2 ? row0 : row1);
 }
 
@@ -62,7 +67,7 @@ static Bitmap const alternating_rows[2] = {
 };
 
 // 4 MB transposition table
-static size_t const TRANSPOSITION_BITS = 23;
+static size_t const TRANSPOSITION_BITS = 19;
 static size_t const TRANSPOSITION_SIZE = static_cast<size_t>(1) << TRANSPOSITION_BITS;
 
 inline int popcount(Bitmap value) {
@@ -205,10 +210,10 @@ class Position {
         return color_ + mask_;
     }
 
-    void to_string(char *buf) const;
-    std::string to_string() const {
-        char buffer[BOARD_BUFSIZE+1];
-        to_string(buffer);
+    void to_string(char *buf, int indent=0) const;
+    std::string to_string(int indent=0) const {
+        char buffer[BOARD_BUFSIZE+1+(HEIGHT+2)*indent];
+        to_string(buffer, indent);
         return buffer;
     }
     void clear() {
@@ -232,11 +237,18 @@ class Position {
     explicit operator bool() const { return mask_ != FULL_MAP; }
 
     static void reset() {
+        start_depth_ = 0;
         nr_visits_ = 0;
         hits_      = 0;
         misses_    = 0;
         transpositions_.clear();
     };
+    void set_depth() const {
+        start_depth_ = nr_plies();
+    }
+    int indent() const {
+        return nr_plies() - start_depth_;
+    }
     ALWAYS_INLINE
     static void visit() { ++nr_visits_; };
     ALWAYS_INLINE
@@ -251,8 +263,10 @@ class Position {
     Transposition::value_type* transposition_entry() const {
         return transpositions_.entry(key());
     }
+    std::vector<int> principal_variation(int score, bool weak) const;
 
   private:
+    static int start_depth_;
     static uint64_t nr_visits_;
     static Transposition transpositions_;
     static uint64_t hits_;

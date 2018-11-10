@@ -4,12 +4,14 @@
 # CC_MALLOC=-fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free
 # LIBS_MALLOC=-l:libtcmalloc_minimal.so.4
 
-CXXFLAGS := -Wall -Wextra -Wformat=2 -Wfloat-equal -Wlogical-op -Wshift-overflow=2 -Wduplicated-cond -Wcast-qual -Wcast-align -Winline --param inline-unit-growth=200 --param large-function-growth=1000 --param max-inline-insns-single=800 -mno-vzeroupper -fno-math-errno -funsafe-math-optimizations -ffinite-math-only -ffast-math -fno-signed-zeros -fno-trapping-math -Ofast -march=native -fstrict-aliasing $(CC_MALLOC) -std=c++17 -g3 -pthread $(SANITIZE)
+# -mno-vzeroupper
+CXXFLAGS := -Wall -Wextra -Wformat=2 -Wfloat-equal -Wlogical-op -Wshift-overflow=2 -Wduplicated-cond -Wcast-qual -Wcast-align -Winline --param inline-unit-growth=200 --param large-function-growth=1000 --param max-inline-insns-single=800 -fno-math-errno -funsafe-math-optimizations -ffinite-math-only -ffast-math -fno-signed-zeros -fno-trapping-math -Ofast -march=native -fstrict-aliasing $(CC_MALLOC) -std=c++17 -g3 -pthread $(SANITIZE)
 # CXXFLAGS += -Wrestrict
 # CXXFLAGS += -D_GLIBCXX_DEBUG -D_GLIBCXX_DEBUG_PEDANTIC -D_FORTIFY_SOURCE=2
 # CXXFLAGS += -D CHECK=1
 
 LDFLAGS = -g3 -pthread $(SANITIZE)
+# On NFS run once: ccache -o 'compiler_check=stat -c "%y" %compiler%;hostname'
 CXX := ccache $(CXX)
 
 LDLIBS += $(LIBS_MALLOC)

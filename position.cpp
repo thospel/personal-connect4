@@ -2,6 +2,9 @@
 
 #include "position.hpp"
 
+bool const DEBUG = false;
+
+int Position::start_depth_;
 uint64_t Position::nr_visits_;
 uint64_t Position::hits_;
 uint64_t Position::misses_;
@@ -20,6 +23,27 @@ std::array<Bitmap, WIDTH> Position::generate_move_order() {
     }
     return order;
 }
+
+std::string to_bits(Bitmap bitmap) {
+    char buffer[WIDTH * (HEIGHT+1)+1];
+    auto ptr = &buffer[WIDTH * (HEIGHT+1)+1];
+    *--ptr = 0;
+    for (int x=0; x<WIDTH; ++x) {
+        for (int y=0; y<HEIGHT; ++y) {
+            *--ptr = '0' + (bitmap &1);
+            bitmap >>= 1;
+        }
+        bitmap >>= 1;
+        *--ptr = ' ';
+    }
+    return buffer+1;
+}
+
+//FLATTEN
+//std::ostream& operator<<(std::ostream& os, Bitmap bitmap) {
+//    os << to_bits(bitmap);
+//    return os;
+//}
 
 bool Position::_won(Bitmap pos) {
     // horizontal
@@ -41,7 +65,7 @@ bool Position::_won(Bitmap pos) {
     return false;
 }
 
-inline
+ALWAYS_INLINE
 Bitmap Position::_winning_bits(Bitmap color) const {
     // vertical (3 stones on top of each other)
     Bitmap r = (color << 1) & (color << 2) & (color << 3);
@@ -86,12 +110,12 @@ Bitmap Position::_winning_bits(Bitmap color) const {
     return r & (BOARD_MASK ^ mask_);
 }
 
-FLATTEN
+ALWAYS_INLINE
 Bitmap Position::winning_bits() const {
     return _winning_bits(color_ ^ mask_);
 }
 
-FLATTEN
+ALWAYS_INLINE
 Bitmap Position::opponent_winning_bits() const {
     return _winning_bits(color_);
 }
@@ -124,8 +148,9 @@ Position Position::play(std::istream& in) const {
     return pos.play(line);
 }
 
-void Position::to_string(char* buf) const {
+void Position::to_string(char* buf, int indent) const {
     Color mover = to_move();
+    for (int i=0; i<indent; ++i) *buf++ = ' ';
     for (int x=0; x < WIDTH; ++x) {
         *buf++ = '+';
         *buf++ = '-';
@@ -134,6 +159,7 @@ void Position::to_string(char* buf) const {
     *buf++ = '\n';
 
     for (int y=HEIGHT-1; y >=0; --y) {
+        for (int i=0; i<indent; ++i) *buf++ = ' ';
         for (int x=0; x < WIDTH; ++x) {
             *buf++ = '|';
             auto v = get(x, y, mover);
@@ -143,6 +169,7 @@ void Position::to_string(char* buf) const {
         *buf ++ = '\n';
     }
 
+    for (int i=0; i<indent; ++i) *buf++ = ' ';
     for (int x=0; x < WIDTH; ++x) {
         *buf++ = '+';
         *buf++ = '-';
@@ -150,6 +177,40 @@ void Position::to_string(char* buf) const {
     *buf++ = '+';
     *buf++ = '\n';
     *buf = 0;
+}
+
+ALWAYS_INLINE
+bool equal_score(int s1, int s2, bool weak) {
+    if (!weak) return s1 == s2;
+    return (s1 < 0 && s2 < 0) || (s1 == 0 && s2 == 0) || (s1 > 0 && s2 > 0);
+}
+
+std::vector<int> Position::principal_variation(int score, bool weak) const {
+    std::vector<int> moves;
+    auto pos = *this;
+    while (1) {
+        score = -score;
+        auto possible = pos.possible_bits();
+        if (!possible || pos.won()) break;
+        // std::cout << "Analyzing " << to_bits(possible) << "\n" << pos;
+        for (auto& move: move_order_) {
+            Bitmap move_bit = possible & move;
+            if (!move_bit) continue;
+            auto p = pos._play(move_bit);
+            auto s = p.solve(weak);
+            // std::cout << "Try move " << to_bits(move_bit) << " -> " << s << "\n";
+            if (equal_score(s, score, weak)) {
+                int best = ((ALL_BITS-1) - clz(move)) / USED_HEIGHT;
+                moves.emplace_back(best);
+                pos = p;
+                goto FOUND;
+            }
+        }
+        // std::cout.flush();
+        throw_logic("Could not find principal variation");
+      FOUND:;
+    }
+    return moves;
 }
 
 int Position::negamax() const {
@@ -186,17 +247,23 @@ int Position::negamax() const {
 // actual score  >= beta         THEN actual score >= return value >= beta
 // alpha <= actual score <= beta THEN        return value = actual score
 int Position::_alphabeta(int alpha, int beta) const {
-    // std::cout << "Consider [" << alpha << ", " << beta << "]:\n" << *this;
-
     auto transposition = transposition_entry();
     __builtin_prefetch(transposition);
     // Avoid the prefetch being moved down
     asm("");
 
+    int indent;
+    if (DEBUG) {
+        indent = INDENT*this->indent();
+        for (int i=0; i<indent; ++i) std::cout << " ";
+        std::cout << "Consider [" << alpha << ", " << beta << "]:\n" << this->to_string(indent);
+        indent += INDENT;
+    }
+
     visit();
 
     auto possible = possible_bits();
-    // places where the opponent wants a stone because he them wins
+    // places where the opponent wants a stone because he then wins
     auto opponent_win = opponent_winning_bits();
     // If any of these places is possible the opponent will play there if given
     // a chance. To prevent that we must play there ourselves (we can't just
@@ -239,7 +306,10 @@ int Position::_alphabeta(int alpha, int beta) const {
     Bitmap my_stones = color_ ^ mask_;
     if (transposition->get(key(), max, best)) {
         hit();
-        // std::cout << "Cached score=" << max << ", best=" << best << "\n";
+        if (DEBUG) {
+            for (int i=0; i<indent; ++i) std::cout << " ";
+            std::cout << "Cached score=" << max << ", best=" << best << "\n";
+        }
         // best_bit = 0;
         best_bit = ((ONE << HEIGHT) -1) << best * USED_HEIGHT & possible;
         order[pos++] = Entry{my_stones | best_bit, 2*(AREA+1)};
@@ -263,8 +333,8 @@ int Position::_alphabeta(int alpha, int beta) const {
         // If we got a best move from the cache the ordering isn't so important
         // It causes some more visits due to bad ordering for the rest of the
         // moves but the speedup is still worth it
-        for (int i=0; i<WIDTH; ++i) {
-            Bitmap move_bit = possible & move_order_[i];
+        for (auto& move: move_order_) {
+            Bitmap move_bit = possible & move;
             if (!move_bit || move_bit == best_bit) continue;
             // We can actually move there
             order[pos++].after_move = my_stones | move_bit;
@@ -297,7 +367,10 @@ int Position::_alphabeta(int alpha, int beta) const {
         auto after_move = order[p].after_move;
         auto position = Position{after_move, after_move | mask_};
         int s = position._alphabeta(beta, alpha);
-        // std::cout << "Result [" << alpha << ", " << beta << "] = " << s << "\n" << position;
+        if (DEBUG) {
+            for (int i=0; i<indent; ++i) std::cout << " ";
+            std::cout << "Result [" << -alpha << ", " << -beta << "] = " << s << "\n";
+        }
         // Prune if we find better than the window
         if (s <= beta) return -s;
         // Found a value better than alpha (but worse than beta)
@@ -310,13 +383,19 @@ int Position::_alphabeta(int alpha, int beta) const {
     }
     current = -current;
     move ^= my_stones;
-    best = ((ALL_BITS-1) - clz(move)) / USED_HEIGHT;;
+    best = ((ALL_BITS-1) - clz(move)) / USED_HEIGHT;
     // real value <= alpha, so we are storing an upper bound
     transposition->set(key(), current, best);
     return current;
 }
 
 int Position::solve(bool weak) const {
+    // Check if opponent already won
+    if (won()) {
+        visit();
+        return -score();
+    }
+
     // No moves at all is a draw
     auto possible = possible_bits();
     if (!possible) {
@@ -347,22 +426,37 @@ int Position::solve(bool weak) const {
     }
 
     int score;
-    if (0) {
+    int indent = INDENT * this->indent();
+    if (false) {
         // Next move doesn't finish the game. Go full alpha/beta
         score = _alphabeta(min, max);
     } else {
         // iteratively narrow the min-max exploration window
         while (min < max) {
             int med = min + (max - min)/2;
-            if (     med <= 0 && min/2 < med) med = min/2;
-            else if (med >= 0 && max/2 > med) med = max/2;
+            // std::cout << "[" << min << " " << max << "]-> " << med << "\n";
+            if (true) {
+                if (     med <= 0 && min/2 < med) med = min/2;
+                else if (med >= 0 && max/2 > med) med = max/2;
+            } else {
+                if (     med <= 0 && min/2 < 0) med = min/2;
+                else if (med >= 0 && max/2 > 0) med = max/2;
+                if (med+1 > max) med = max-1;
+                if (med < min) med = min;
+            }
             // Check if the actual score is greater than med
             int r = _alphabeta(med, med + 1);
+            if (DEBUG) {
+                for (int i=0; i<indent; ++i) std::cout << " ";
+                std::cout << "Result [" << med << ", " << med+1 << "] = " << r << "\n";
+            }
+            // std::cout << med << " -> " << r << "\n";
             if (r <= med) max = r;
             else min = r;
         }
         score = min;
     }
-    // std::cout << "Result [" << alpha << ", " << beta << "] = " << score << "\n" << *this;
+    if (DEBUG) std::cout << "Solve: " << score << "\n";
+
     return score;
 }
