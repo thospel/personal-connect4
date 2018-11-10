@@ -3,6 +3,7 @@
 #include "position.hpp"
 
 bool const DEBUG = false;
+bool const BEST  = false;
 
 int Position::start_depth_;
 uint64_t Position::nr_visits_;
@@ -311,9 +312,11 @@ int Position::_alphabeta(int alpha, int beta) const {
             for (int i=0; i<indent; ++i) std::cout << " ";
             std::cout << "Cached score=" << max << ", best=" << best << "\n";
         }
-        // best_bit = 0;
-        best_bit = ((ONE << HEIGHT) -1) << best * USED_HEIGHT & possible;
-        order[pos++] = Entry{my_stones | best_bit, INT_MAX};
+        if (BEST) {
+            best_bit = ((ONE << HEIGHT) -1) << best * USED_HEIGHT & possible;
+            order[pos++] = Entry{my_stones | best_bit, INT_MAX};
+        } else
+            best_bit = 0;
     } else {
         miss();
         // Upperbound since we cannot win on our next move
@@ -389,7 +392,10 @@ int Position::_alphabeta(int alpha, int beta) const {
     }
     current = -current;
     move ^= my_stones;
-    best = ((ALL_BITS-1) - clz(move)) / USED_HEIGHT;
+    if (BEST)
+        best = ((ALL_BITS-1) - clz(move)) / USED_HEIGHT;
+    else
+        best = 0;
     // real value <= alpha, so we are storing an upper bound
     transposition->set(key(), current, best);
     return current;
