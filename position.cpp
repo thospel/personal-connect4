@@ -30,9 +30,10 @@ std::string to_bits(Bitmap bitmap) {
     *--ptr = 0;
     for (int x=0; x<WIDTH; ++x) {
         for (int y=0; y<HEIGHT; ++y) {
-            *--ptr = '0' + (bitmap &1);
+            *--ptr = '0' + (bitmap & 1);
             bitmap >>= 1;
         }
+        if (bitmap & 1) throw_logic("Filled guard bits");
         bitmap >>= 1;
         *--ptr = ' ';
     }
@@ -104,8 +105,8 @@ Bitmap Position::_winning_bits(Bitmap color) const {
     r |= p & (color << (USED_HEIGHT+1));
     r |= p & (color >> 3*(USED_HEIGHT+1));
 
-    // All of them can mistakenly hit the guard bit(s),
-    // but we mask them out here
+    // All of them can mistakenly hit the guard bit(s) and already filled bits
+    // We mask these out here
     // BOARD_MASK ^ mask = bits that are actually empty
     return r & (BOARD_MASK ^ mask_);
 }
@@ -312,13 +313,13 @@ int Position::_alphabeta(int alpha, int beta) const {
         }
         // best_bit = 0;
         best_bit = ((ONE << HEIGHT) -1) << best * USED_HEIGHT & possible;
-        order[pos++] = Entry{my_stones | best_bit, 2*(AREA+1)};
+        order[pos++] = Entry{my_stones | best_bit, INT_MAX};
     } else {
         miss();
         // Upperbound since we cannot win on our next move
         max = (left-1)/2;
         best_bit = 0;
-        order[0].nr_threats = 2*(AREA+1);
+        order[0].nr_threats = INT_MAX;
     }
 
     if (beta > max) {
@@ -340,16 +341,21 @@ int Position::_alphabeta(int alpha, int beta) const {
             order[pos++].after_move = my_stones | move_bit;
         }
     } else {
+        auto opponent_stacked = opponent_win & (opponent_win << 1);
+        // Convert to mask
+        auto opponent_allowed = opponent_stacked | ABOVE_BITS;
+        opponent_allowed &= ~opponent_allowed + BOTTOM_BITS;
+        opponent_allowed -= BOTTOM_BITS;
+        opponent_allowed &= BOARD_MASK;
         // Insertion sort based on how many threats we have
         for (int i=0; i<WIDTH; ++i) {
             Bitmap move_bit = possible & move_order_[i];
             if (!move_bit) continue;
             // We can actually move there
             Bitmap after_move = my_stones | move_bit;
-            Bitmap winning_bits = _winning_bits(after_move);
-            // Bonus for stacked winning bits saves visits but still slower.
-            // int nr_threats = 2*popcount(winning_bits)+((winning_bits & winning_bits >> 1) != 0);
-            int nr_threats = popcount(winning_bits);
+            Bitmap winning_bits = _winning_bits(after_move) & opponent_allowed;
+            // Bonus for stacked winning bits
+            int nr_threats = 2*popcount(winning_bits)+((winning_bits & winning_bits >> 1) != 0);
             int p = pos;
             while (nr_threats > order[p-1].nr_threats) {
                 order[p] = order[p-1];

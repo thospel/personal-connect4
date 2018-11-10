@@ -43,5 +43,8 @@ FORCE:
 clean:
 	rm -f *.o *.S *.s connect4 core
 
+realclean: clean
+	rm -f connect4-*
+
 bench benchmark: connect4
 	./tester -P Test_L*

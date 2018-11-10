@@ -42,25 +42,28 @@ static int const BEST_BITS  = LOG2(WIDTH);			// 3
 static_assert(SCORE_BITS+BEST_BITS <= LEFT_BITS, "No space for hash results");
 
 static Bitmap const ONE = 1;
-static Bitmap const TOP_BIT  = ONE << (HEIGHT-1);
-static Bitmap const BOT_BIT  = ONE;
+static Bitmap const BOTTOM_BIT  = ONE;
+static Bitmap const TOP_BIT     = ONE << (HEIGHT-1);
+static Bitmap const ABOVE_BIT   = ONE << HEIGHT;
 static Bitmap const FULL_MAP = -1;
 static Bitmap const KEY_MASK   = (ONE << KEY_BITS)   - 1;
 static Bitmap const SCORE_MASK = (ONE << SCORE_BITS) - 1;
 static Bitmap const BEST_MASK  = (ONE << BEST_BITS)  - 1;
 
-static constexpr Bitmap BOTTOM(Bitmap model = ONE, int n=WIDTH) {
-    return n == 0 ? 0 : (BOTTOM(model, n-1) << USED_HEIGHT) | model;
-}
 static constexpr Bitmap ALTERNATING_ROWS(Bitmap row0, Bitmap row1,
                                          int n=WIDTH) {
     return
         n == 0 ? 0 :
         ALTERNATING_ROWS(row0, row1, n-1) << USED_HEIGHT | (n%2 ? row0 : row1);
 }
+static constexpr Bitmap REPEATING_ROWS(Bitmap model = ONE, int n=WIDTH) {
+    return ALTERNATING_ROWS(model, model, n);
+}
 
-static Bitmap const BOTTOM_BITS = BOTTOM();
-static Bitmap const BOARD_MASK  = BOTTOM_BITS * ((ONE << HEIGHT)-1);
+static Bitmap const BOTTOM_BITS = REPEATING_ROWS(BOTTOM_BIT);
+static Bitmap const    TOP_BITS = REPEATING_ROWS(   TOP_BIT);
+static Bitmap const  ABOVE_BITS = REPEATING_ROWS( ABOVE_BIT);
+static Bitmap const BOARD_MASK  = REPEATING_ROWS((ONE << HEIGHT)-1);
 static Bitmap const alternating_rows[2] = {
     ALTERNATING_ROWS((ONE << HEIGHT)-1, 0),
     ALTERNATING_ROWS(                0, (ONE << HEIGHT)-1),
@@ -178,7 +181,7 @@ class Position {
     Bitmap winning_bits() const;
     Bitmap sensible_bits() const;
     Position play(int x) const {
-        Bitmap mask  = mask_ | (mask_ + bot_bit(x));
+        Bitmap mask  = mask_ | (mask_ + bottom_bit(x));
         Bitmap color = color_ ^ mask;
         return Position{color, mask};
     }
@@ -276,8 +279,8 @@ class Position {
 
     Position(Bitmap color, Bitmap mask): color_{color}, mask_{mask} {}
     static bool _won(Bitmap mask);
-    static Bitmap top_bit(int y) { return TOP_BIT << y * USED_HEIGHT; }
-    static Bitmap bot_bit(int y) { return BOT_BIT << y * USED_HEIGHT; }
+    static Bitmap    top_bit(int y) { return    TOP_BIT << y * USED_HEIGHT; }
+    static Bitmap bottom_bit(int y) { return BOTTOM_BIT << y * USED_HEIGHT; }
     inline static int _score(Bitmap color) {
         return MAX_STONES+1-popcount(color);
     }
