@@ -286,7 +286,7 @@ class Position {
     }
 
     Bitmap _winning_bits(Bitmap color) const;
-    int _alphabeta(int alpha, int beta) const;
+    int _alphabeta(int alpha, int beta, Bitmap opponent_win) const;
     Position _play(Bitmap move_bit) const {
         Bitmap mask  = mask_  | move_bit;
         return Position{color_ ^ mask, mask};

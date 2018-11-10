@@ -3,6 +3,7 @@
 #include "position.hpp"
 
 bool const DEBUG = false;
+// BEST true doesn't work currently
 bool const BEST  = false;
 
 int Position::start_depth_;
@@ -248,7 +249,7 @@ int Position::negamax() const {
 // actual_score <= alpha         THEN actual score <= return value <= alpha
 // actual score  >= beta         THEN actual score >= return value >= beta
 // alpha <= actual score <= beta THEN        return value = actual score
-int Position::_alphabeta(int alpha, int beta) const {
+int Position::_alphabeta(int alpha, int beta, Bitmap opponent_win) const {
     auto transposition = transposition_entry();
     __builtin_prefetch(transposition);
     // Avoid the prefetch being moved down
@@ -265,8 +266,6 @@ int Position::_alphabeta(int alpha, int beta) const {
     visit();
 
     auto possible = possible_bits();
-    // places where the opponent wants a stone because he then wins
-    auto opponent_win = opponent_winning_bits();
     // If any of these places is possible the opponent will play there if given
     // a chance. To prevent that we must play there ourselves (we can't just
     // win instead since _alphabeta is never called in a winning position)
@@ -299,9 +298,11 @@ int Position::_alphabeta(int alpha, int beta) const {
 
     struct Entry {
         Bitmap after_move;
+        Bitmap winning_bits;
         int nr_threats;
     };
     std::array<Entry, WIDTH+1> order;
+    std::array<int,   WIDTH+1> index;
     int pos = 1;
     int max, best;
     Bitmap best_bit;
@@ -314,14 +315,18 @@ int Position::_alphabeta(int alpha, int beta) const {
         }
         if (BEST) {
             best_bit = ((ONE << HEIGHT) -1) << best * USED_HEIGHT & possible;
-            order[pos++] = Entry{my_stones | best_bit, INT_MAX};
-        } else
+            order[pos++] = Entry{my_stones | best_bit, 0, INT_MAX};
+        } else {
             best_bit = 0;
+            index[0] = 0;
+            order[0].nr_threats = INT_MAX;
+        }
     } else {
         miss();
         // Upperbound since we cannot win on our next move
         max = (left-1)/2;
         best_bit = 0;
+        index[0] = 0;
         order[0].nr_threats = INT_MAX;
     }
 
@@ -356,16 +361,17 @@ int Position::_alphabeta(int alpha, int beta) const {
             if (!move_bit) continue;
             // We can actually move there
             Bitmap after_move = my_stones | move_bit;
-            Bitmap winning_bits = _winning_bits(after_move) & opponent_allowed;
+            Bitmap winning_bits = _winning_bits(after_move);
+            Bitmap allowed_winning_bits = winning_bits & opponent_allowed;
             // Bonus for stacked winning bits
-            int nr_threats = 2*popcount(winning_bits)+((winning_bits & winning_bits >> 1) != 0);
+            int nr_threats = 2*popcount(allowed_winning_bits)+((allowed_winning_bits & allowed_winning_bits >> 1) != 0);
+            order[pos] = Entry{after_move, winning_bits, nr_threats};
             int p = pos;
-            while (nr_threats > order[p-1].nr_threats) {
-                order[p] = order[p-1];
+            while (nr_threats > order[index[p-1]].nr_threats) {
+                index[p] = index[p-1];
                 --p;
             }
-            order[p] = Entry{after_move, nr_threats};
-            ++pos;
+            index[p] = pos++;
         }
     }
     int current = MAX_SCORE+1;
@@ -373,9 +379,10 @@ int Position::_alphabeta(int alpha, int beta) const {
     alpha = -alpha;
     beta  = -beta;
     for (int p=1; p<pos; ++p) {
-        auto after_move = order[p].after_move;
+        auto& entry = order[index[p]];
+        auto after_move = entry.after_move;
         auto position = Position{after_move, after_move | mask_};
-        int s = position._alphabeta(beta, alpha);
+        int s = position._alphabeta(beta, alpha, entry.winning_bits);
         if (DEBUG) {
             for (int i=0; i<indent; ++i) std::cout << " ";
             std::cout << "Result [" << -alpha << ", " << -beta << "] = " << s << "\n";
@@ -439,9 +446,10 @@ int Position::solve(bool weak) const {
 
     int score;
     int indent = INDENT * this->indent();
+    auto opponent_winning_bits = this->opponent_winning_bits();
     if (false) {
         // Next move doesn't finish the game. Go full alpha/beta
-        score = _alphabeta(min, max);
+        score = _alphabeta(min, max, opponent_winning_bits);
     } else {
         // iteratively narrow the min-max exploration window
         while (min < max) {
@@ -457,7 +465,7 @@ int Position::solve(bool weak) const {
                 if (med < min) med = min;
             }
             // Check if the actual score is greater than med
-            int r = _alphabeta(med, med + 1);
+            int r = _alphabeta(med, med + 1, opponent_winning_bits);
             if (DEBUG) {
                 for (int i=0; i<indent; ++i) std::cout << " ";
                 std::cout << "Result [" << med << ", " << med+1 << "] = " << r << "\n";
