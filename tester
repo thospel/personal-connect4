@@ -18,6 +18,7 @@ die "Could not parse your command line. Try $0 -h\n" unless
     GetOptions("timeout|t=o"	=> \$TIMEOUT,
                "p|program=s"	=> \$PROGRAM,
                "P|private!"	=> \my $private,
+               "k|keep!"	=> \my $keep,
                "version!"	=> \my $version,
                "U|unsafe!"	=> \my $unsafe,
                "h|help!"	=> \my $help);
@@ -63,8 +64,11 @@ sub test_file {
     my $nr_pos         = 0;
     open (my $fh, "<", $file) || die "Could not open '$file': $!\n";
     my $pid = open2(my $out, my $in,
-                    "./$PROGRAM", -t => $TIMEOUT, $weak ? "-w" : ()) ||
-        die "Could not fork/exec: $!\n";
+                    "./$PROGRAM",
+                    -t => $TIMEOUT,
+                    $weak ? "-w" : (),
+                    $keep ? "-k" : (),
+                ) || die "Could not fork/exec: $!\n";
     # open2 already makes sure $in is flushing
 
     my $name = sprintf("%s %s", $file, $weak ? "weak  " : "strong");

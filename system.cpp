@@ -1,18 +1,24 @@
 #include "system.hpp"
 
-#include <iostream>
+#include <atomic>
+#include <map>
 #include <system_error>
 
-#include <ctime>
+#include <cstdio>
 #include <cstring>
+#include <ctime>
 
 #include <sys/types.h>
 #include <unistd.h>
-#include <sys/mman.h>
+#include <sys/sysinfo.h>
 
 std::string const PID{std::to_string(getpid())};
-std::string const VCS_COMMIT{STRINGIFY(COMMIT)};
-std::string const VCS_COMMIT_TIME{STRINGIFY(COMMIT_TIME)};
+std::string HOSTNAME;
+std::string CPUS;
+
+size_t SYSTEM_MEMORY;
+size_t SYSTEM_SWAP;
+uint NR_CPU;
 
 bool FATAL = false;
 
@@ -45,6 +51,55 @@ void throw_logic(std::string const& text) {
     throw(std::logic_error(text));
 }
 
+// Linux specific
+void get_cpu_string() COLD;
+void get_cpu_string() {
+    FILE* fp = fopen("/proc/cpuinfo", "r");
+    if (!fp) throw_errno("Could not open '/proc/cpuinfo'");
+    char *line = NULL;
+    size_t len = 0;
+    ssize_t nread;
+    uint nr_cpu = 0;
+
+    static char const MODEL_NAME[] = "model name";
+    std::map<std::string, uint> cpus;
+    while ((nread = getline(&line, &len, fp)) != -1) {
+        char const* ptr = line;
+        while (isspace(*ptr)) ++ptr;
+        if (memcmp(ptr, MODEL_NAME, sizeof(MODEL_NAME)-1)) continue;
+        ptr += sizeof(MODEL_NAME)-1;
+        while (isspace(*ptr)) ++ptr;
+        if (*ptr != ':') continue;
+        ++ptr;
+        while (isspace(*ptr)) ++ptr;
+        char* end = line+nread;
+        while (end > ptr && isspace(end[-1])) --end;
+        if (end <= ptr) continue;
+        *end = '\0';
+        ++cpus[std::string{ptr, static_cast<size_t>(end-ptr)}];
+        ++nr_cpu;
+    }
+    free(line);
+    fclose(fp);
+
+    CPUS.clear();
+    if (nr_cpu == NR_CPU) {
+        for (auto& entry: cpus) {
+            if (!CPUS.empty()) CPUS.append("<br />");
+            CPUS.append(std::to_string(entry.second));
+            CPUS.append(" x ");
+            CPUS.append(entry.first);
+        }
+    } else if (cpus.size() == 1) {
+        for (auto& entry: cpus) {
+            CPUS.append(std::to_string(NR_CPU));
+            CPUS.append(" x ");
+            CPUS.append(entry.first);
+        }
+    } else
+        CPUS.append(std::to_string(NR_CPU));
+}
+
 inline std::string _time_string(time_t time) {
     struct tm tm;
 
@@ -74,32 +129,24 @@ std::string time_string() {
     return _time_string(_now());
 }
 
-// Huge pages allocate will fail if you don't have them.
-// So for 64M of huge pages you will need to do something like:
-//     echo 32 > /proc/sys/vm/nr_hugepages 
-#ifdef MAP_HUGETLB
-# define HUGE	MAP_HUGETLB
-#else
-# define HUGE	0
-#endif
-Mmap::Mmap(size_t length, bool huge) : length_{length}, allocated_{0} {
-    if (!HUGE && huge) throw_logic("No huge page support on this system");
-    map_ = mmap(NULL, length, PROT_READ | PROT_WRITE,
-                MAP_PRIVATE|MAP_ANONYMOUS|(huge ? HUGE : 0), -1, 0);
-    if (map_ == MAP_FAILED)
-        throw_errno(huge ? "Could not mmap HUGE" : "Could not mmap");
-}
+void init_system() {
+    tzset();
 
-Mmap::~Mmap() {
-    int rc = munmap(map_, length_);
-    // This should be impossible and will call terminate if it happens
-    if (rc)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wterminate"
-        throw_errno("Could not munmap");
-#pragma GCC diagnostic pop
-}
+    char hostname[100];
+    hostname[sizeof(hostname)-1] = 0;
+    int rc = gethostname(hostname, sizeof(hostname)-1);
+    if (rc) throw_errno("Could not determine host name");
+    HOSTNAME.assign(hostname);
 
-void Mmap::zero() {
-    memset(map_, 0, length_);
+    cpu_set_t cs;
+    if (sched_getaffinity(0, sizeof(cs), &cs))
+        throw_errno("Could not determine number of CPUs");
+    NR_CPU = CPU_COUNT(&cs);
+    get_cpu_string();
+
+    struct sysinfo s_info;
+    if (sysinfo(&s_info))
+        throw_errno("Could not determine memory");
+    SYSTEM_MEMORY = static_cast<size_t>(s_info.totalram ) * s_info.mem_unit;
+    SYSTEM_SWAP   = static_cast<size_t>(s_info.totalswap) * s_info.mem_unit;
 }

@@ -7,7 +7,7 @@
 #include <cstdint>
 #include <climits>
 
-#include "vector.hpp"
+#include "constants.hpp"
 #include "system.hpp"
 
 typedef uint64_t Bitmap;
@@ -70,8 +70,7 @@ static Bitmap const alternating_rows[2] = {
 };
 
 // 4 MB transposition table
-static size_t const TRANSPOSITION_BITS = 19;
-static size_t const TRANSPOSITION_SIZE = static_cast<size_t>(1) << TRANSPOSITION_BITS;
+static size_t const TRANSPOSITION_SIZE = static_cast<size_t>(1) << 19;
 
 inline int popcount(Bitmap value) {
 #ifdef __POPCNT__
@@ -84,10 +83,10 @@ inline int popcount(Bitmap value) {
     return __builtin_popcountl(value);
 #endif // __POPCNT__
 }
-inline int clz(Bitmap value) {
-    static_assert(sizeof(Bitmap) == sizeof(unsigned long),
+inline int first_bit(Bitmap value) {
+    static_assert(sizeof(value) == sizeof(unsigned long),
                   "Bitmap is not unsigned long");
-    return __builtin_clzl(value);
+    return (sizeof(value)*CHAR_BIT-1) - __builtin_clzl(value);
 }
 
 class Transposition {
@@ -110,34 +109,33 @@ class Transposition {
             best = (value_ >> KEY_BITS) & BEST_MASK;
             return true;
         }
+        static value_type INVALID() { return value_type{static_cast<Bitmap>(-1)}; }
 
       private:
         explicit value_type(Bitmap value): value_{value} {}
         Bitmap value_;
     };
-    Transposition(): entries_{TRANSPOSITION_SIZE * sizeof(value_type), 0} {}
-    void clear() {
-        entries_.zero();
-        // Make sure the empty board is not a hit
-        *entry(0) = value_type{static_cast<Bitmap>(-1)};
-    }
+    Transposition(size_t size=0);
+    void resize(size_t size);
+    void clear() HOT;
     value_type* entry(Bitmap key) {
-        return &reinterpret_cast<value_type*>(entries_.base())[fast_hash(key)];
+        return &entries_[fast_hash(key)];
     }
     value_type const* entry(Bitmap key) const {
-        return &reinterpret_cast<value_type const*>(entries_.base())[fast_hash(key)];
+        return &entries_[fast_hash(key)];
     }
   private:
     ALWAYS_INLINE
-    static Bitmap fast_hash(Bitmap key) {
+    Bitmap fast_hash(Bitmap key) const {
         static_assert(sizeof(key) == sizeof(LCM_MULTIPLIER),
                       "Bitmap is not 64 bits. Find another multiplier");
         key *= LCM_MULTIPLIER;
-        return key >> (ALL_BITS-TRANSPOSITION_BITS);
+        return key >> bits_;
     }
     static uint64_t const LCM_MULTIPLIER = UINT64_C(6364136223846793005);
 
-    Mmap entries_;
+    int bits_;
+    std::vector<value_type> entries_;
 };
 
 class Position {
@@ -239,12 +237,13 @@ class Position {
     }
     explicit operator bool() const { return mask_ != FULL_MAP; }
 
-    static void reset() {
+    static void init(size_t size) { transpositions_.resize(size); }
+    static void reset(bool keep_transpositions = false) {
         start_depth_ = 0;
         nr_visits_ = 0;
         hits_      = 0;
         misses_    = 0;
-        transpositions_.clear();
+        if (!keep_transpositions) transpositions_.clear();
     };
     void set_depth() const {
         start_depth_ = nr_plies();

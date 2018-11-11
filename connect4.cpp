@@ -4,6 +4,7 @@
 
 #include <unistd.h>
 
+#include "revision.hpp"
 #include "position.hpp"
 
 // Handle commandline options.
@@ -64,11 +65,13 @@ using namespace std;
 
 int main([[maybe_unused]] int argc,
          char const* const* argv) {
-    uint timeout = 0;
+    uint timeout   = 0;
+    uint transposition_bits = LOG2(TRANSPOSITION_SIZE);
     bool principal = false;
     bool weak      = false;
     bool minimax   = false;
-    GetOpt options{"mwpt:", argv};
+    bool keep      = false;
+    GetOpt options{"mwpt:T:k", argv};
     while (options.next()) {
         switch (options.option()) {
             case 't':
@@ -79,19 +82,33 @@ int main([[maybe_unused]] int argc,
                   timeout = tmp;
               }
               break;
+            case 'T':
+              {
+                  auto tmp = atoll(options.arg());
+                  if (tmp < 0) throw(range_error("transposition_bits must not be negative"));
+                  if (tmp >= static_cast<int>(sizeof(size_t) * CHAR_BIT))
+                      throw(range_error("transposition_bits too large"));
+                  transposition_bits = tmp;
+              }
+              break;
             case 'm': minimax   = true; break;
             case 'p': principal = true; break;
             case 'w': weak      = true; break;
+            case 'k': keep      = true; break;
             default:
-              cerr << "usage: " << argv[0] << " [-t timeout]" << endl;
+              cerr << "usage: " << argv[0] << " [-t timeout] [-w] [-p] [-m] [-k] [-T transposition_bits]" << endl;
               exit(EXIT_FAILURE);
         }
     }
 
+    init_system();
     cout << "Time " << time_string() << "\n";
     cout << "Pid: " << PID << "\n";
     cout << "Commit: " << VCS_COMMIT << "\n";
+    cout << "CPU: " << CPUS << "\n";
 
+    Position::init(static_cast<size_t>(1) << transposition_bits);
+    if (keep) Position::reset(false);
     if (timeout) alarm(timeout);
     std::string line;
     while (getline(cin, line)) {
@@ -99,7 +116,7 @@ int main([[maybe_unused]] int argc,
         if (space != std::string::npos) line.resize(space);
         Position pos{line};
         cout << pos;
-        Position::reset();
+        Position::reset(keep);
         pos.set_depth();
         auto start = chrono::steady_clock::now();
         int score;

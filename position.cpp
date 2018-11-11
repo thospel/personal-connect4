@@ -42,6 +42,31 @@ std::string to_bits(Bitmap bitmap) {
     return buffer+1;
 }
 
+Transposition::Transposition(size_t size): entries_{size} {}
+
+void Transposition::resize(size_t size) {
+    if (size) {
+        uint bits = first_bit(size);
+        size_t real_size = static_cast<size_t>(1) << bits;
+        if (real_size < size) {
+            ++bits;
+            if (bits >= sizeof(size_t) * CHAR_BIT)
+                throw_logic("Size is way too high");
+            real_size *= 2;
+        }
+        entries_.resize(real_size);
+        bits_ = ALL_BITS-bits;
+    } else
+        entries_.clear();
+}
+
+void Transposition::clear() {
+    if (entries_.empty()) throw_logic("Attempt to clear without memory");
+    std::memset(reinterpret_cast<void *>(&entries_[0]), 0, entries_.size() * sizeof(entries_[0]));
+    // Make sure the empty board is not a hit
+    *entry(0) = value_type::INVALID();
+}
+
 //FLATTEN
 //std::ostream& operator<<(std::ostream& os, Bitmap bitmap) {
 //    os << to_bits(bitmap);
@@ -203,7 +228,7 @@ std::vector<int> Position::principal_variation(int score, bool weak) const {
             auto s = p.solve(weak);
             // std::cout << "Try move " << to_bits(move_bit) << " -> " << s << "\n";
             if (equal_score(s, score, weak)) {
-                int best = ((ALL_BITS-1) - clz(move)) / USED_HEIGHT;
+                int best = first_bit(move) / USED_HEIGHT;
                 moves.emplace_back(best);
                 pos = p;
                 goto FOUND;
@@ -400,7 +425,7 @@ int Position::_alphabeta(int alpha, int beta, Bitmap opponent_win) const {
     current = -current;
     move ^= my_stones;
     if (BEST)
-        best = ((ALL_BITS-1) - clz(move)) / USED_HEIGHT;
+        best = first_bit(move) / USED_HEIGHT;
     else
         best = 0;
     // real value <= alpha, so we are storing an upper bound

@@ -20,15 +20,17 @@ CXXFLAGS += -DCOMMIT="`git rev-parse HEAD`" -DCOMMIT_TIME="`git show -s --format
 
 all: connect4
 
-position.o: position.hpp vector.hpp Makefile
-system.o: system.hpp Makefile
-connect4.o: system.hpp position.hpp vector.hpp Makefile
+connect4.o position.o system.o revision.o: Makefile constants.hpp
+connect4.o position.o system.o: system.hpp
+connect4.o position.o: position.hpp
+connect4.o revision.o: revision.hpp
 
-position.o: position.cpp
-system.o: system.cpp git_time
 connect4.o: connect4.cpp
+position.o: position.cpp
+system.o:   system.cpp
+revision.o: revision.cpp git_time
 
-connect4: connect4.o position.o system.o
+connect4: connect4.o position.o system.o revision.o
 	$(CXX) $(LDFLAGS) -pthread $^ $(LOADLIBES) $(LDLIBS) -o $@
 
 git_time: FORCE
