@@ -162,6 +162,7 @@ Position Position::play(char const* ptr, size_t size) {
             if (p < 10) throw_logic("Play to the right of the board");
             throw_logic("Invalid character in play");
         }
+        if (!pos.playable(x)) throw_logic("Play in a full column");
         pos = pos.play(x);
     }
     return pos;
@@ -504,4 +505,17 @@ int Position::solve(bool weak) const {
     if (DEBUG) std::cout << "Solve: " << score << "\n";
 
     return score;
+}
+
+void Position::generate_book(std::string how, int depth, bool weak) const {
+    if (depth > 0) {
+        --depth;
+        for (int x=0; x<WIDTH; ++x)
+            if (playable(x)) {
+                char ch = '1' + x;
+                play(x).generate_book(how + ch, depth, weak);
+            }
+    }
+    int score = solve(weak);
+    std::cout << *this << how << " " << score << std::endl;
 }

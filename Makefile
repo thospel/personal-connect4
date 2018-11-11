@@ -36,6 +36,9 @@ connect4: connect4.o position.o system.o revision.o
 git_time: FORCE
 	@touch --date=@`git show -s --format=%ct HEAD` git_time
 
+opening.txt: connect4
+	echo " " | ./connect4 -T0 -g4 -k | tee opening.txt
+
 FORCE:
 
 .o.S:

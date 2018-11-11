@@ -18,6 +18,8 @@ die "Could not parse your command line. Try $0 -h\n" unless
     GetOptions("timeout|t=o"	=> \$TIMEOUT,
                "p|program=s"	=> \$PROGRAM,
                "P|private!"	=> \my $private,
+               "B|preload!"	=> \my $preload,
+               "T|bits=o"	=> \my $transposition_bits,
                "k|keep!"	=> \my $keep,
                "version!"	=> \my $version,
                "U|unsafe!"	=> \my $unsafe,
@@ -68,6 +70,8 @@ sub test_file {
                     -t => $TIMEOUT,
                     $weak ? "-w" : (),
                     $keep ? "-k" : (),
+                    $preload ? ("-b" => $file) : (),
+                    $transposition_bits ? ("-T" => $transposition_bits) : (),
                 ) || die "Could not fork/exec: $!\n";
     # open2 already makes sure $in is flushing
 

@@ -1,4 +1,7 @@
 #include <chrono>
+#include <unordered_set>
+#include <unordered_map>
+#include <fstream>
 
 #include <cstdlib>
 
@@ -63,51 +66,105 @@ class GetOpt {
 
 using namespace std;
 
+void insert(std::unordered_map<Position, int>& preset, std::string const& book) {
+    std::ifstream file;
+    file.exceptions(std::ifstream::badbit);
+    file.open(book);
+    std::string line;
+    int64_t line_nr = 0;
+    Position pos;
+    while (getline(file, line)) {
+        ++line_nr;
+        if (line.empty()) continue;
+        if (!(line[0] == ' ' || ('0' <= line[0] && line[0] <= '9'))) continue;
+        auto space = line.find(' ');
+        if (space == std::string::npos)
+            throw_logic("No score on line " + std::to_string(line_nr));
+        pos.clear();
+        pos = pos.play(line.data(), space);
+        line.erase(0, space+1);
+        int score = std::stoi(line, &space);
+        if (space == 0)
+            throw_logic("No score on line " + std::to_string(line_nr));
+        if (score > pos.score())
+            throw_logic("Impossible high score on line " + std::to_string(line_nr));
+        if (score < -pos.score1())
+            throw_logic("Impossible low score on line " + std::to_string(line_nr));
+        preset.emplace(pos, score);
+    }
+    file.close();
+}
+
 int main([[maybe_unused]] int argc,
          char const* const* argv) {
+    init_system();
+    std::cin.exceptions(std::ifstream::badbit);
+
     uint timeout   = 0;
-    uint transposition_bits = LOG2(TRANSPOSITION_SIZE);
+    int transposition_bits = LOG2(TRANSPOSITION_SIZE);
     bool principal = false;
     bool weak      = false;
     bool minimax   = false;
     bool keep      = false;
-    GetOpt options{"mwpt:T:k", argv};
+    int  generate  = -1;
+    std::unordered_set<std::string> books;
+
+    GetOpt options{"mwpt:T:kb:g:", argv};
     while (options.next()) {
+        long long tmp;
         switch (options.option()) {
             case 't':
-              {
-                  auto tmp = atoll(options.arg());
-                  if (tmp < 0) throw(range_error("timeout must not be negative"));
-                  if (tmp > UINT_MAX) throw(range_error("timeout too large"));
-                  timeout = tmp;
-              }
+              tmp = atoll(options.arg());
+              if (tmp < 0) throw(range_error("timeout must not be negative"));
+              if (tmp > UINT_MAX) throw(range_error("timeout too large"));
+              timeout = tmp;
+              break;
+            case 'g':
+              tmp = atoll(options.arg());
+              if (tmp < -1) throw(range_error("generate must not be negative"));
+              if (tmp > AREA) throw(range_error("There aren't that many plies"));
+              generate = tmp;
               break;
             case 'T':
-              {
-                  auto tmp = atoll(options.arg());
-                  if (tmp < 0) throw(range_error("transposition_bits must not be negative"));
+              tmp = atoll(options.arg());
+              if (tmp <= 0) {
+                  transposition_bits = first_bit((SYSTEM_MEMORY-1) / sizeof(Transposition::value_type));
+                  if (tmp < -transposition_bits)
+                      throw(range_error("transposition_bits too negative"));
+                  transposition_bits += tmp;
+                  // By default don't take more than 8G)
+                  if (tmp == 0) transposition_bits = min(transposition_bits, static_cast<int>(36 - LOG2(sizeof(Transposition::value_type) * CHAR_BIT)));
+              } else {
                   if (tmp >= static_cast<int>(sizeof(size_t) * CHAR_BIT))
                       throw(range_error("transposition_bits too large"));
                   transposition_bits = tmp;
               }
               break;
+            case 'b': books.emplace(options.arg()); break;
             case 'm': minimax   = true; break;
             case 'p': principal = true; break;
             case 'w': weak      = true; break;
             case 'k': keep      = true; break;
             default:
-              cerr << "usage: " << argv[0] << " [-t timeout] [-w] [-p] [-m] [-k] [-T transposition_bits]" << endl;
+              cerr << "usage: " << argv[0] << " [-t timeout] [-w] [-p] [-m] [-k] [-T transposition_bits] [-g depth]" << endl;
               exit(EXIT_FAILURE);
         }
     }
 
-    init_system();
-    cout << "Time " << time_string() << "\n";
+    cout << "Board: " << WIDTH << "x" << HEIGHT << "\n";
+    cout << "Time: " << time_string() << "\n";
     cout << "Pid: " << PID << "\n";
     cout << "Commit: " << VCS_COMMIT << "\n";
     cout << "CPU: " << CPUS << "\n";
+    cout << "Memory: " << SYSTEM_MEMORY / (1L << 30) << " GiB\n";
+    cout << "Swap: " << SYSTEM_SWAP     / (1L << 30) << " GiB\n";
+
+    std::unordered_map<Position, int> preset;
+    for (auto const& book: books)
+        insert(preset, book);
 
     Position::init(static_cast<size_t>(1) << transposition_bits);
+    cout << "Transposition table: " << Position::transpositions_bytes() / (1L << 20) << " MiB (" << Position::transpositions_size() / (1L << 20) << " Mi entries)\n";
     if (keep) Position::reset(false);
     if (timeout) alarm(timeout);
     std::string line;
@@ -115,8 +172,17 @@ int main([[maybe_unused]] int argc,
         auto space = line.find(' ');
         if (space != std::string::npos) line.resize(space);
         Position pos{line};
-        cout << pos;
         Position::reset(keep);
+        for (auto const& p: preset) {
+            auto transposition = p.first.transposition_entry();
+            transposition->set(p.first.key(), p.second, 0);
+        }
+        if (generate >= 0) {
+            pos.generate_book(line, generate, weak);
+            cout.flush();
+            continue;
+        }
+        cout << pos;
         pos.set_depth();
         auto start = chrono::steady_clock::now();
         int score;

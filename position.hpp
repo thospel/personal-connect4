@@ -124,6 +124,9 @@ class Transposition {
     value_type const* entry(Bitmap key) const {
         return &entries_[fast_hash(key)];
     }
+    size_t size()  const { return entries_.size();  }
+    size_t bytes() const { return size() * sizeof(value_type); }
+
   private:
     ALWAYS_INLINE
     Bitmap fast_hash(Bitmap key) const {
@@ -178,6 +181,9 @@ class Position {
     Bitmap opponent_winning_bits() const;
     Bitmap winning_bits() const;
     Bitmap sensible_bits() const;
+    bool playable(int x) const {
+        return ((mask_ + bottom_bit(x)) & ~BOARD_MASK) == 0;
+    }
     Position play(int x) const {
         Bitmap mask  = mask_ | (mask_ + bottom_bit(x));
         Bitmap color = color_ ^ mask;
@@ -210,7 +216,9 @@ class Position {
         // after the
         return color_ + mask_;
     }
-
+    bool operator==(Position const& rhs) const {
+        return key() == rhs.key();
+    }
     void to_string(char *buf, int indent=0) const;
     std::string to_string(int indent=0) const {
         char buffer[BOARD_BUFSIZE+1+(HEIGHT+2)*indent];
@@ -224,6 +232,7 @@ class Position {
 
     int negamax() const;
     int solve(bool weak) const;
+    void generate_book(std::string how, int depth, bool weak=false) const;
 
     friend std::ostream& operator<<(std::ostream& os, Position const& pos) {
         char buffer[BOARD_BUFSIZE+1];
@@ -261,6 +270,8 @@ class Position {
     static uint64_t nr_visits() { return nr_visits_; };
     static uint64_t hits()      { return hits_; }
     static uint64_t misses()    { return misses_; }
+    static size_t transpositions_size()  { return transpositions_.size();  }
+    static size_t transpositions_bytes() { return transpositions_.bytes(); }
     ALWAYS_INLINE
     Transposition::value_type* transposition_entry() const {
         return transpositions_.entry(key());
@@ -296,4 +307,13 @@ class Position {
     // (0,0) is bottom left of board and is in the lsb of Bitmap
     Bitmap color_;
     Bitmap mask_;
+};
+
+template <>
+struct std::hash<Position> {
+    size_t operator()(Position const& pos) const {
+        return pos.key() * LCM_MULTIPLIER;
+    }
+  private:
+    static uint64_t const LCM_MULTIPLIER = UINT64_C(6364136223846793005);
 };
