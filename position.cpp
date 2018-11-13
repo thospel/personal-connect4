@@ -209,12 +209,12 @@ void Position::to_string(char* buf, int indent) const {
 }
 
 ALWAYS_INLINE
-bool equal_score(int s1, int s2, bool weak) {
-    if (!weak) return s1 == s2;
+bool equal_score(int s1, int s2, int method) {
+    if (!method) return s1 == s2;
     return (s1 < 0 && s2 < 0) || (s1 == 0 && s2 == 0) || (s1 > 0 && s2 > 0);
 }
 
-std::vector<int> Position::principal_variation(int score, bool weak) const {
+std::vector<int> Position::principal_variation(int score, int method) const {
     std::vector<int> moves;
     auto pos = *this;
     while (1) {
@@ -226,9 +226,9 @@ std::vector<int> Position::principal_variation(int score, bool weak) const {
             Bitmap move_bit = possible & move;
             if (!move_bit) continue;
             auto p = pos._play(move_bit);
-            auto s = p.solve(weak);
+            auto s = p.solve(method);
             // std::cout << "Try move " << to_bits(move_bit) << " -> " << s << "\n";
-            if (equal_score(s, score, weak)) {
+            if (equal_score(s, score, method)) {
                 int best = first_bit(move) / USED_HEIGHT;
                 moves.emplace_back(best);
                 pos = p;
@@ -434,7 +434,7 @@ int Position::_alphabeta(int alpha, int beta, Bitmap opponent_win) const {
     return current;
 }
 
-int Position::solve(bool weak) const {
+int Position::solve(int method, int debug) const {
     // Check if opponent already won
     if (won()) {
         visit();
@@ -451,7 +451,7 @@ int Position::solve(bool weak) const {
     // If we can win in 1 move say we can win on the next move
     auto winning = winning_bits();
     if (winning & possible) {
-        // std::cout << "Immediate win: " << winning << " " << possible << "\n";
+        if (debug) std::cout << "Immediate win: " << winning << " " << possible << "\n";
         visit();
         return score1();
     }
@@ -465,7 +465,7 @@ int Position::solve(bool weak) const {
     // Game doesn't finish in 1 ply, therefore:
     int min = -score2();	// win after 2 more plies
     int max =  score3();	// win after 3 more plies
-    if (weak) {
+    if (method == 1) {
         if (min < -1) min = -1;
         if (max >  1) max =  1;
     }
@@ -479,8 +479,16 @@ int Position::solve(bool weak) const {
     } else {
         // iteratively narrow the min-max exploration window
         while (min < max) {
+            if (method > 1) {
+                if (max < 0) {
+                    min = max;
+                    break;
+                }
+                if (min > 0) break;
+            }
             int med = min + (max - min)/2;
-            // std::cout << "[" << min << " " << max << "]-> " << med << "\n";
+            if (debug)
+                std::cout << "Uncooked [" << min << " " << max << "]-> med=" << med << "\n";
             if (true) {
                 if (     med <= 0 && min/2 < med) med = min/2;
                 else if (med >= 0 && max/2 > med) med = max/2;
@@ -492,30 +500,29 @@ int Position::solve(bool weak) const {
             }
             // Check if the actual score is greater than med
             int r = _alphabeta(med, med + 1, opponent_winning_bits);
-            if (DEBUG) {
+            if (debug) {
                 for (int i=0; i<indent; ++i) std::cout << " ";
                 std::cout << "Result [" << med << ", " << med+1 << "] = " << r << "\n";
             }
-            // std::cout << med << " -> " << r << "\n";
             if (r <= med) max = r;
             else min = r;
         }
         score = min;
     }
-    if (DEBUG) std::cout << "Solve: " << score << "\n";
+    if (debug) std::cout << "Solve: " << score << "\n";
 
     return score;
 }
 
-void Position::generate_book(std::string how, int depth, bool weak) const {
+void Position::generate_book(std::string how, int depth, int method) const {
     if (depth > 0) {
         --depth;
         for (int x=0; x<WIDTH; ++x)
             if (playable(x)) {
                 char ch = '1' + x;
-                play(x).generate_book(how + ch, depth, weak);
+                play(x).generate_book(how + ch, depth, method);
             }
     }
-    int score = solve(weak);
+    int score = solve(method);
     std::cout << *this << how << " " << score << std::endl;
 }

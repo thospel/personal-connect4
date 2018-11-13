@@ -103,13 +103,14 @@ int main([[maybe_unused]] int argc,
     uint timeout   = 0;
     int transposition_bits = LOG2(TRANSPOSITION_SIZE);
     bool principal = false;
-    bool weak      = false;
+    int  method    = 0;
     bool minimax   = false;
     bool keep      = false;
+    int debug      = 0;
     int  generate  = -1;
     std::unordered_set<std::string> books;
 
-    GetOpt options{"mwpt:T:kb:g:", argv};
+    GetOpt options{"mwpt:T:kb:g:d:", argv};
     while (options.next()) {
         long long tmp;
         switch (options.option()) {
@@ -140,13 +141,14 @@ int main([[maybe_unused]] int argc,
                   transposition_bits = tmp;
               }
               break;
+            case 'd': debug = atoll(options.arg()); break;
             case 'b': books.emplace(options.arg()); break;
             case 'm': minimax   = true; break;
             case 'p': principal = true; break;
-            case 'w': weak      = true; break;
             case 'k': keep      = true; break;
+            case 'w': ++method;         break;
             default:
-              cerr << "usage: " << argv[0] << " [-t timeout] [-w] [-p] [-m] [-k] [-T transposition_bits] [-g depth]" << endl;
+              cerr << "usage: " << argv[0] << " [-t timeout] [-w [-w]] [-p] [-m] [-k] [-T transposition_bits] [-b opening book] [-g depth] [-d debug_level]" << endl;
               exit(EXIT_FAILURE);
         }
     }
@@ -178,8 +180,7 @@ int main([[maybe_unused]] int argc,
             transposition->set(p.first.key(), p.second, 0);
         }
         if (generate >= 0) {
-            pos.generate_book(line, generate, weak);
-            cout.flush();
+            pos.generate_book(line, generate, method);
             continue;
         }
         cout << pos;
@@ -188,13 +189,13 @@ int main([[maybe_unused]] int argc,
         int score;
         if (minimax)
             score = pos.negamax();
-        else score = pos.solve(weak);
+        else score = pos.solve(method, debug);
         auto end = chrono::steady_clock::now();
         auto duration = chrono::duration_cast<chrono::nanoseconds>(end - start).count();
         cout << "misses: " << Position::misses() << ", hits: " << Position::hits() << "\n";
         cout << line << " " << score << " " << (duration+500)/1000 << " " << Position::nr_visits() << endl;
         if (principal) {
-            auto pv = pos.principal_variation(score, weak);
+            auto pv = pos.principal_variation(score, method);
             auto p = pos;
             for (auto move: pv) {
                 p = p.play(move);

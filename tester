@@ -69,13 +69,14 @@ sub test_file {
                     "./$PROGRAM",
                     -t => $TIMEOUT,
                     $weak ? "-w" : (),
+                    $weak < 0 ? "-w" : (),
                     $keep ? "-k" : (),
                     $preload ? ("-b" => $file) : (),
                     $transposition_bits ? ("-T" => $transposition_bits) : (),
                 ) || die "Could not fork/exec: $!\n";
     # open2 already makes sure $in is flushing
 
-    my $name = sprintf("%s %s", $file, $weak ? "weak  " : "strong");
+    my $name = sprintf("%s %s", $file, $weak ? $weak < 0 ? "weak2 " : "weak  " : "strong");
     eval {
         my $line;
         local $_;
@@ -128,8 +129,9 @@ sub test_file {
 }
 
 # system("make $PROGRAM") && die "make filed\n";
-test_file($_) for @ARGV;	# Strong
+test_file($_, 0) for @ARGV;	# Strong
 test_file($_, 1) for @ARGV;	# Weak
+test_file($_,-1) for @ARGV;	# Weak2
 __END__
 
 =head1 NAME

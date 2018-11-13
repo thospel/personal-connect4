@@ -231,8 +231,8 @@ class Position {
     }
 
     int negamax() const;
-    int solve(bool weak) const;
-    void generate_book(std::string how, int depth, bool weak=false) const;
+    int solve(int method=0, int debug=0) const;
+    void generate_book(std::string how, int depth, int method=0) const;
 
     friend std::ostream& operator<<(std::ostream& os, Position const& pos) {
         char buffer[BOARD_BUFSIZE+1];
@@ -276,7 +276,7 @@ class Position {
     Transposition::value_type* transposition_entry() const {
         return transpositions_.entry(key());
     }
-    std::vector<int> principal_variation(int score, bool weak) const;
+    std::vector<int> principal_variation(int score, int method=0) const;
 
   private:
     static int start_depth_;
