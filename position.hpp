@@ -12,6 +12,7 @@
 
 typedef uint64_t Bitmap;
 std::string to_bits(Bitmap bitmap);
+void to_board(Bitmap bitmap, char* buf, int indent=0);
 // std::ostream& operator<<(std::ostream& os, Bitmap bitmap);
 
 static constexpr uint LOG2(size_t value) {
@@ -69,7 +70,13 @@ static Bitmap const alternating_rows[2] = {
     ALTERNATING_ROWS(                0, (ONE << HEIGHT)-1),
 };
 
-// 4 MB transposition table
+inline std::string to_board(Bitmap bitmap, int indent=0) {
+    char buffer[BOARD_BUFSIZE+1+(HEIGHT+2)*indent];
+    to_board(bitmap, buffer, indent);
+    return buffer;
+}
+
+// Default 4 MB transposition table
 static size_t const TRANSPOSITION_SIZE = static_cast<size_t>(1) << 19;
 
 inline int popcount(Bitmap value) {
@@ -231,7 +238,7 @@ class Position {
     }
 
     int negamax() const;
-    int solve(int method=0, int debug=0) const;
+    int solve(int method=0, int target_score = INT_MIN, int debug=0) const;
     void generate_book(std::string how, int depth, int method=0) const;
 
     friend std::ostream& operator<<(std::ostream& os, Position const& pos) {

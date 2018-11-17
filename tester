@@ -130,7 +130,9 @@ sub test_file {
 
 # system("make $PROGRAM") && die "make filed\n";
 test_file($_, 0) for @ARGV;	# Strong
+print "\n" if @ARGV > 1;
 test_file($_, 1) for @ARGV;	# Weak
+print "\n" if @ARGV > 1;
 test_file($_,-1) for @ARGV;	# Weak2
 __END__
 

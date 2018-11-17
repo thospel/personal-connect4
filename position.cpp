@@ -10,6 +10,7 @@ int Position::start_depth_;
 uint64_t Position::nr_visits_;
 uint64_t Position::hits_;
 uint64_t Position::misses_;
+
 Transposition Position::transpositions_;
 
 std::array<Bitmap, WIDTH> const Position::move_order_ = Position::generate_move_order();
@@ -40,6 +41,35 @@ std::string to_bits(Bitmap bitmap) {
         *--ptr = ' ';
     }
     return buffer+1;
+}
+
+void to_board(Bitmap bitmap, char* buf, int indent) {
+    for (int i=0; i<indent; ++i) *buf++ = ' ';
+    for (int x=0; x < WIDTH; ++x) {
+        *buf++ = '+';
+        *buf++ = '-';
+    }
+    *buf++ = '+';
+    *buf++ = '\n';
+
+    for (int y=HEIGHT-1; y >=0; --y, bitmap <<= 1) {
+        for (int i=0; i<indent; ++i) *buf++ = ' ';
+        for (int x=0; x < WIDTH; ++x) {
+            *buf++ = '|';
+            *buf++ = bitmap >> (x*USED_HEIGHT+HEIGHT-1) & 1 ? '*' : ' ';
+        }
+        *buf ++ = '|';
+        *buf ++ = '\n';
+    }
+
+    for (int i=0; i<indent; ++i) *buf++ = ' ';
+    for (int x=0; x < WIDTH; ++x) {
+        *buf++ = '+';
+        *buf++ = '-';
+    }
+    *buf++ = '+';
+    *buf++ = '\n';
+    *buf = 0;
 }
 
 Transposition::Transposition(size_t size): entries_{size} {}
@@ -94,12 +124,27 @@ bool Position::_won(Bitmap pos) {
 }
 
 ALWAYS_INLINE
-Bitmap Position::_winning_bits(Bitmap color) const {
-    // vertical (3 stones on top of each other)
-    Bitmap r = (color << 1) & (color << 2) & (color << 3);
-
+Bitmap _indifferent_bits(Bitmap color) {
+    Bitmap r = 0;
     Bitmap p;
-    //horizontal
+
+    // vertical
+    p = (color << 1) & (color << 2);
+    // p = 2 stones next to each other (shifted one row up)
+    // Check  Xxx?
+    r |= p & (color << 3);
+    // Check xx?X
+    r |= p & (color >> 1);
+    // p = 2 stones next to each other (shifted one row down)
+    // We can get this from the previous p. Left for now for symmetry
+    //    .xx. => x...
+    p = (color >> 1) & (color >> 2);
+    // Check X?xx
+    r |= p & (color << 1);
+    // Check ?xxX
+    r |= p & (color >> 3);
+
+    // horizontal
     // p = 2 stones next to each other (shifted one column to the right)
     //    .xx. => ...x
     p = (color << USED_HEIGHT) & (color << 2*USED_HEIGHT);
@@ -108,6 +153,7 @@ Bitmap Position::_winning_bits(Bitmap color) const {
     // Check xx?X
     r |= p & (color >> USED_HEIGHT);
     // p = 2 stones next to each other (shifted one column to the left)
+    // Cannot get this from previous p unless we know top was not shifted out
     //    .xx. => x...
     p = (color >> USED_HEIGHT) & (color >> 2*USED_HEIGHT);
     // Check X?xx
@@ -125,6 +171,51 @@ Bitmap Position::_winning_bits(Bitmap color) const {
     r |= p & (color >> 3*HEIGHT);
 
     //diagonal 2
+    p = (color << (USED_HEIGHT+1)) & (color << 2*(USED_HEIGHT+1));
+    r |= p & (color << 3*(USED_HEIGHT+1));
+    r |= p & (color >> (USED_HEIGHT+1));
+    p = (color >> (USED_HEIGHT+1)) & (color >> 2*(USED_HEIGHT+1));
+    r |= p & (color << (USED_HEIGHT+1));
+    r |= p & (color >> 3*(USED_HEIGHT+1));
+
+    // All of them can mistakenly hit the guard bit(s) and already filled bits
+    // We mask these out here
+    // BOARD_MASK ^ mask = bits that are actually empty
+    return r & BOARD_MASK;
+}
+
+ALWAYS_INLINE
+Bitmap Position::_winning_bits(Bitmap color) const {
+    // vertical (3 stones on top of each other)
+    Bitmap r = (color << 1) & (color << 2) & (color << 3);
+
+    Bitmap p;
+    // horizontal
+    // p = 2 stones next to each other (shifted one column to the right)
+    //    .xx. => ...x
+    p = (color << USED_HEIGHT) & (color << 2*USED_HEIGHT);
+    // Check  Xxx?
+    r |= p & (color << 3*USED_HEIGHT);
+    // Check xx?X
+    r |= p & (color >> USED_HEIGHT);
+    // p = 2 stones next to each other (shifted one column to the left)
+    //    .xx. => x...
+    p = (color >> USED_HEIGHT) & (color >> 2*USED_HEIGHT);
+    // Check X?xx
+    r |= p & (color << USED_HEIGHT);
+    // Check ?xxX
+    r |= p & (color >> 3*USED_HEIGHT);
+
+    // diagonals are simular but moving columns one up/down
+    // diagonal 1
+    p = (color << HEIGHT) & (color << 2*HEIGHT);
+    r |= p & (color << 3*HEIGHT);
+    r |= p & (color >> HEIGHT);
+    p = (color >> HEIGHT) & (color >> 2*HEIGHT);
+    r |= p & (color << HEIGHT);
+    r |= p & (color >> 3*HEIGHT);
+
+    // diagonal 2
     p = (color << (USED_HEIGHT+1)) & (color << 2*(USED_HEIGHT+1));
     r |= p & (color << 3*(USED_HEIGHT+1));
     r |= p & (color >> (USED_HEIGHT+1));
@@ -221,12 +312,12 @@ std::vector<int> Position::principal_variation(int score, int method) const {
         score = -score;
         auto possible = pos.possible_bits();
         if (!possible || pos.won()) break;
-        // std::cout << "Analyzing " << to_bits(possible) << "\n" << pos;
+        // std::cout << "Analyzing target " << score << ", possible: " << to_bits(possible) << "\n" << pos;
         for (auto& move: move_order_) {
             Bitmap move_bit = possible & move;
             if (!move_bit) continue;
             auto p = pos._play(move_bit);
-            auto s = p.solve(method);
+            auto s = p.solve(method, score);
             // std::cout << "Try move " << to_bits(move_bit) << " -> " << s << "\n";
             if (equal_score(s, score, method)) {
                 int best = first_bit(move) / USED_HEIGHT;
@@ -276,6 +367,7 @@ int Position::negamax() const {
 // actual score  >= beta         THEN actual score >= return value >= beta
 // alpha <= actual score <= beta THEN        return value = actual score
 int Position::_alphabeta(int alpha, int beta, Bitmap opponent_win) const {
+
     auto transposition = transposition_entry();
     __builtin_prefetch(transposition);
     // Avoid the prefetch being moved down
@@ -364,15 +456,22 @@ int Position::_alphabeta(int alpha, int beta, Bitmap opponent_win) const {
     }
 
     // Explore moves
-    if (best_bit) {
+    if (false && best_bit) {
         // If we got a best move from the cache the ordering isn't so important
         // It causes some more visits due to bad ordering for the rest of the
         // moves but the speedup is still worth it
+        order[pos].after_move = my_stones | best_bit;
+        order[pos].winning_bits = _winning_bits(order[pos].after_move);
+        index[pos] = pos;
+        ++pos;
         for (auto& move: move_order_) {
             Bitmap move_bit = possible & move;
             if (!move_bit || move_bit == best_bit) continue;
             // We can actually move there
-            order[pos++].after_move = my_stones | move_bit;
+            order[pos].after_move = my_stones | move_bit;
+            order[pos].winning_bits = _winning_bits(order[pos].after_move);
+            index[pos] = pos;
+            ++pos;
         }
     } else {
         auto opponent_stacked = opponent_win & (opponent_win << 1);
@@ -390,6 +489,7 @@ int Position::_alphabeta(int alpha, int beta, Bitmap opponent_win) const {
             Bitmap winning_bits = _winning_bits(after_move);
             Bitmap allowed_winning_bits = winning_bits & opponent_allowed;
             // Bonus for stacked winning bits
+            // int nr_threats = 4*popcount(allowed_winning_bits)+2*((allowed_winning_bits & allowed_winning_bits >> 1) != 0)+(move_bit == best_bit);
             int nr_threats = 2*popcount(allowed_winning_bits)+((allowed_winning_bits & allowed_winning_bits >> 1) != 0);
             order[pos] = Entry{after_move, winning_bits, nr_threats};
             int p = pos;
@@ -434,7 +534,7 @@ int Position::_alphabeta(int alpha, int beta, Bitmap opponent_win) const {
     return current;
 }
 
-int Position::solve(int method, int debug) const {
+int Position::solve(int method, int target_score, int debug) const {
     // Check if opponent already won
     if (won()) {
         visit();
@@ -463,11 +563,17 @@ int Position::solve(int method, int debug) const {
     }
 
     // Game doesn't finish in 1 ply, therefore:
-    int min = -score2();	// win after 2 more plies
-    int max =  score3();	// win after 3 more plies
-    if (method == 1) {
-        if (min < -1) min = -1;
-        if (max >  1) max =  1;
+    int min, max;
+    if (target_score == INT_MIN) {
+        min = -score2();	// win after 2 more plies
+        max =  score3();	// win after 3 more plies
+        if (method == 1) {
+            if (min < -1) min = -1;
+            if (max >  1) max =  1;
+        }
+    } else {
+        min = target_score;
+        max = target_score+1;
     }
 
     int score;

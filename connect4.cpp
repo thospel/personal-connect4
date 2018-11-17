@@ -189,7 +189,7 @@ int main([[maybe_unused]] int argc,
         int score;
         if (minimax)
             score = pos.negamax();
-        else score = pos.solve(method, debug);
+        else score = pos.solve(method, INT_MIN, debug);
         auto end = chrono::steady_clock::now();
         auto duration = chrono::duration_cast<chrono::nanoseconds>(end - start).count();
         cout << "misses: " << Position::misses() << ", hits: " << Position::hits() << "\n";
