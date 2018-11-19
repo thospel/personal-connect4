@@ -123,9 +123,10 @@ class Transposition {
                  int& score, int& best) const {
             if (relevant_color_ != relevant_color ||
                 (relevant_mask_ & KEY_MASK) != relevant_mask) {
-                // std::cout << "Miss " << relevant_color_ << " " << relevant_color << " | " << (relevant_mask_ & KEY_MASK) << " " << relevant_mask << "\n";
+                // std::cout << "Miss:" << relevant_color << " " << relevant_mask << " | " << relevant_color_ << " " << (relevant_mask_ & KEY_MASK) << "\n";
                 return false;
             }
+            // std::cout << "Hit :" << relevant_color << " " << relevant_mask << "\n";
             score = static_cast<int>(relevant_mask_ >> (KEY_BITS+BEST_BITS)) - (MAX_SCORE+1);
             best = (relevant_mask_ >> KEY_BITS) & BEST_MASK;
             return true;
@@ -299,14 +300,14 @@ class Position {
     static size_t transpositions_bytes() { return transpositions_.bytes(); }
     ALWAYS_INLINE
     Transposition::value_type* transposition_entry(Bitmap relevant) const {
-        return transpositions_.entry(color_ | (~relevant & mask_), relevant & mask_);
+        return transpositions_.entry(relevant & ~color_, relevant & mask_);
     }
     void set(Transposition::value_type* entry, Bitmap relevant, int score, int best) const {
-        entry->set(color_ | (~relevant & mask_), relevant & mask_, score, best);
+        entry->set(relevant & ~color_, relevant & mask_, score, best);
     }
     bool get(Transposition::value_type const* entry, Bitmap relevant,
              int& score, int& best) const {
-        return entry->get(color_ | (~relevant & mask_), relevant & mask_, score, best);
+        return entry->get(relevant & ~color_, relevant & mask_, score, best);
     }
 
     std::vector<int> principal_variation(int score, int method=0) const;

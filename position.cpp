@@ -296,8 +296,8 @@ void Position::to_string(char* buf, int indent, Bitmap relevant) const {
     *buf++ = '+';
     *buf++ = '\n';
 
-    auto relevant_color = (~relevant & mask_) | color_;
-    auto relevant_mask  = relevant & mask_;
+    auto relevant_color = relevant & ~color_;
+    auto relevant_mask  = relevant &  mask_;
     for (int y=HEIGHT-1; y >=0; --y, relevant_color <<=1, relevant_mask <<= 1) {
         for (int i=0; i<indent; ++i) *buf++ = ' ';
         for (int x=0; x < WIDTH; ++x) {
@@ -412,19 +412,12 @@ int Position::negamax() const {
 // alpha <= actual score <= beta THEN        return value = actual score
 int Position::_alphabeta(int alpha, int beta, Bitmap opponent_win) const {
     auto relevant = relevant_bits();
-    if (false) {
-        auto extra_mask = (mask_ | ~relevant) & BOARD_MASK;
-        // If there are no relevant cells it is a draw
-        if (extra_mask == BOARD_MASK) return 0;
-        extra_mask = (((extra_mask + BOTTOM_BITS) & ABOVE_BITS) >> HEIGHT) * FULL_BIT & ~mask_;
-        if (popcount(extra_mask) >= 7) {
-            std::cout << this->to_string(0, relevant) << to_board(extra_mask);
-            exit(0);
-        }
-    }
 
-    // std::cout << "Relevant\n" << to_board(~relevant);
-    // relevant = BOARD_MASK;
+    // If nothing is relevant it's a draw
+    if ((relevant & BOARD_MASK) == 0) return 0;
+
+    // Empty is always relevant (not really, but it's hard to properly analyze)
+    relevant = (relevant | ~mask_) & BOARD_MASK;
 
     auto transposition = transposition_entry(relevant);
     __builtin_prefetch(transposition);
