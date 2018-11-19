@@ -296,8 +296,8 @@ void Position::to_string(char* buf, int indent, Bitmap relevant) const {
     *buf++ = '+';
     *buf++ = '\n';
 
-    auto relevant_color = (~relevant & mask_) | color_;
-    auto relevant_mask  = relevant & mask_;
+    auto relevant_color = relevant & ~color_;
+    auto relevant_mask  = relevant &  mask_;
     for (int y=HEIGHT-1; y >=0; --y, relevant_color <<=1, relevant_mask <<= 1) {
         for (int i=0; i<indent; ++i) *buf++ = ' ';
         for (int x=0; x < WIDTH; ++x) {
@@ -411,16 +411,19 @@ int Position::negamax() const {
 // actual score  >= beta         THEN actual score >= return value >= beta
 // alpha <= actual score <= beta THEN        return value = actual score
 int Position::_alphabeta(int alpha, int beta, Bitmap opponent_win) const {
-    auto relevant = relevant_bits();
+    auto relevant = relevant_bits() & BOARD_MASK;
+    // If there are no relevant cells it is a draw
+    if (!relevant) return 0;
+    int left = nr_plies_left();
     if (false) {
-        auto extra_mask = (mask_ | ~relevant) & BOARD_MASK;
-        // If there are no relevant cells it is a draw
-        if (extra_mask == BOARD_MASK) return 0;
-        extra_mask = (((extra_mask + BOTTOM_BITS) & ABOVE_BITS) >> HEIGHT) * FULL_BIT & ~mask_;
-        if (popcount(extra_mask) >= 7) {
-            std::cout << this->to_string(0, relevant) << to_board(extra_mask);
-            exit(0);
-        }
+        // Cannot have 3 irrelevant empty at a column top since together with
+        // the stone below they would be relevant
+        // (assuming HEIGHT > 3, if not no big, we just miss an optimisation)
+        auto extra_mask = ~(mask_ | relevant) & TOP2_MASK;
+        extra_mask &= extra_mask >> 1 | TOP_BITS;
+        relevant = ((relevant | ~mask_) & ~extra_mask & BOARD_MASK) | ((left & ONE) << BITS);
+    } else {
+        relevant = (relevant | ~mask_) & BOARD_MASK;
     }
 
     // std::cout << "Relevant\n" << to_board(~relevant);
@@ -461,7 +464,6 @@ int Position::_alphabeta(int alpha, int beta, Bitmap opponent_win) const {
         // (draws were already excluded so there ARE moves)
         return -score2();
 
-    int left = nr_plies_left();
     // No need to detect draw (in 2 moves).
     // If left = 2 then (below) min = max = 0 and we will immediately return 0
 
@@ -569,7 +571,7 @@ int Position::_alphabeta(int alpha, int beta, Bitmap opponent_win) const {
         int s = position._alphabeta(beta, alpha, entry.winning_bits);
         if (DEBUG) {
             for (int i=0; i<indent; ++i) std::cout << " ";
-            std::cout << "Result [" << -alpha << ", " << -beta << "] = " << s << "\n";
+            std::cout << "Result [" << beta << ", " << alpha << "] = " << s << "\n";
         }
         // Prune if we find better than the window
         if (s <= beta) return -s;
@@ -588,6 +590,10 @@ int Position::_alphabeta(int alpha, int beta, Bitmap opponent_win) const {
     else
         best = 0;
     // real value <= alpha, so we are storing an upper bound
+    if (DEBUG) {
+        for (int i=INDENT; i<indent; ++i) std::cout << " ";
+        std::cout << "Store " << current << "\n";
+    }
     set(transposition, relevant, current, best);
     return current;
 }

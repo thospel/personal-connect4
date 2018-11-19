@@ -43,12 +43,13 @@ static int const BEST_BITS  = LOG2(WIDTH);			// 3
 static_assert(SCORE_BITS+BEST_BITS <= LEFT_BITS, "No space for hash results");
 
 static Bitmap const ONE = 1;
-static Bitmap const BOTTOM_BIT  = ONE;
-static Bitmap const TOP_BIT     = ONE << (HEIGHT-1);
-static Bitmap const ABOVE_BIT   = ONE << HEIGHT;
-static Bitmap const MOVER_BIT   = ONE << BITS;
-static Bitmap const FULL_BIT    = ABOVE_BIT - 1;
-static Bitmap const FULL_MAP    = -1;
+static Bitmap const BOTTOM_BIT = ONE;
+static Bitmap const TOP_BIT    = ONE << (HEIGHT-1);
+static Bitmap const ABOVE_BIT  = ONE << HEIGHT;
+static Bitmap const FULL_BIT   = ABOVE_BIT - 1;
+static Bitmap const FULL_MAP   = -1;
+static Bitmap const TOP2_BIT   = (FULL_BIT << HEIGHT >> 2) & FULL_BIT;
+static Bitmap const MOVER_BIT  = ONE << BITS;
 static Bitmap const KEY_MASK   = (ONE << KEY_BITS)   - 1;
 static Bitmap const SCORE_MASK = (ONE << SCORE_BITS) - 1;
 static Bitmap const BEST_MASK  = (ONE << BEST_BITS)  - 1;
@@ -66,6 +67,7 @@ static constexpr Bitmap REPEATING_ROWS(Bitmap model = ONE, int n=WIDTH) {
 static Bitmap const BOTTOM_BITS = REPEATING_ROWS(BOTTOM_BIT);
 static Bitmap const    TOP_BITS = REPEATING_ROWS(   TOP_BIT);
 static Bitmap const  ABOVE_BITS = REPEATING_ROWS( ABOVE_BIT);
+static Bitmap const   TOP2_MASK = REPEATING_ROWS(  TOP2_BIT);
 static Bitmap const BOARD_MASK  = REPEATING_ROWS(  FULL_BIT);
 static Bitmap const alternating_rows[2] = {
     ALTERNATING_ROWS(FULL_BIT,        0),
@@ -123,9 +125,10 @@ class Transposition {
                  int& score, int& best) const {
             if (relevant_color_ != relevant_color ||
                 (relevant_mask_ & KEY_MASK) != relevant_mask) {
-                // std::cout << "Miss " << relevant_color_ << " " << relevant_color << " | " << (relevant_mask_ & KEY_MASK) << " " << relevant_mask << "\n";
+                std::cout << "Miss:" << relevant_color << " " << relevant_mask << " | " << relevant_color_ << " " << (relevant_mask_ & KEY_MASK) << "\n";
                 return false;
             }
+            std::cout << "Hit :" << relevant_color << " " << relevant_mask << "\n";
             score = static_cast<int>(relevant_mask_ >> (KEY_BITS+BEST_BITS)) - (MAX_SCORE+1);
             best = (relevant_mask_ >> KEY_BITS) & BEST_MASK;
             return true;
@@ -297,16 +300,21 @@ class Position {
     static uint64_t misses()    { return misses_; }
     static size_t transpositions_size()  { return transpositions_.size();  }
     static size_t transpositions_bytes() { return transpositions_.bytes(); }
+    //               r&m     c|(~r&m)
+    // relevant me    1       1
+    // relevant him   1       0
+    // empty (any)    0       0
+    // irrelevant     0       1
     ALWAYS_INLINE
     Transposition::value_type* transposition_entry(Bitmap relevant) const {
-        return transpositions_.entry(color_ | (~relevant & mask_), relevant & mask_);
+        return transpositions_.entry(relevant & ~color_, relevant & mask_);
     }
     void set(Transposition::value_type* entry, Bitmap relevant, int score, int best) const {
-        entry->set(color_ | (~relevant & mask_), relevant & mask_, score, best);
+        entry->set(relevant & ~color_, relevant & mask_, score, best);
     }
     bool get(Transposition::value_type const* entry, Bitmap relevant,
              int& score, int& best) const {
-        return entry->get(color_ | (~relevant & mask_), relevant & mask_, score, best);
+        return entry->get(relevant & ~color_, relevant & mask_, score, best);
     }
 
     std::vector<int> principal_variation(int score, int method=0) const;
