@@ -20,7 +20,7 @@ std::array<Bitmap, WIDTH> Position::generate_move_order() {
     int sum = (WIDTH-1) & ~1;
     int base = sum / 2;
     for (int i=0; i < WIDTH; ++i) {
-        order[i] = ((ONE << HEIGHT) -1) << (base * USED_HEIGHT);
+        order[i] = FULL_BIT << (base * USED_HEIGHT);
         sum ^=1;
         base = sum - base;
     }
@@ -92,9 +92,7 @@ void Transposition::resize(size_t size) {
 
 void Transposition::clear() {
     if (entries_.empty()) throw_logic("Attempt to clear without memory");
-    std::memset(reinterpret_cast<void *>(&entries_[0]), 0, entries_.size() * sizeof(entries_[0]));
-    // Make sure the empty board is not a hit
-    *entry(0) = value_type::INVALID();
+    std::memset(reinterpret_cast<void *>(&entries_[0]), -1, entries_.size() * sizeof(entries_[0]));
 }
 
 //FLATTEN
@@ -121,67 +119,6 @@ bool Position::_won(Bitmap pos) {
     if (m & (m >> 2)) return true;
 
     return false;
-}
-
-ALWAYS_INLINE
-Bitmap _indifferent_bits(Bitmap color) {
-    Bitmap r = 0;
-    Bitmap p;
-
-    // vertical
-    p = (color << 1) & (color << 2);
-    // p = 2 stones next to each other (shifted one row up)
-    // Check  Xxx?
-    r |= p & (color << 3);
-    // Check xx?X
-    r |= p & (color >> 1);
-    // p = 2 stones next to each other (shifted one row down)
-    // We can get this from the previous p. Left for now for symmetry
-    //    .xx. => x...
-    p = (color >> 1) & (color >> 2);
-    // Check X?xx
-    r |= p & (color << 1);
-    // Check ?xxX
-    r |= p & (color >> 3);
-
-    // horizontal
-    // p = 2 stones next to each other (shifted one column to the right)
-    //    .xx. => ...x
-    p = (color << USED_HEIGHT) & (color << 2*USED_HEIGHT);
-    // Check  Xxx?
-    r |= p & (color << 3*USED_HEIGHT);
-    // Check xx?X
-    r |= p & (color >> USED_HEIGHT);
-    // p = 2 stones next to each other (shifted one column to the left)
-    // Cannot get this from previous p unless we know top was not shifted out
-    //    .xx. => x...
-    p = (color >> USED_HEIGHT) & (color >> 2*USED_HEIGHT);
-    // Check X?xx
-    r |= p & (color << USED_HEIGHT);
-    // Check ?xxX
-    r |= p & (color >> 3*USED_HEIGHT);
-
-    // diagonals are simular but moving columns one up/down
-    //diagonal 1
-    p = (color << HEIGHT) & (color << 2*HEIGHT);
-    r |= p & (color << 3*HEIGHT);
-    r |= p & (color >> HEIGHT);
-    p = (color >> HEIGHT) & (color >> 2*HEIGHT);
-    r |= p & (color << HEIGHT);
-    r |= p & (color >> 3*HEIGHT);
-
-    //diagonal 2
-    p = (color << (USED_HEIGHT+1)) & (color << 2*(USED_HEIGHT+1));
-    r |= p & (color << 3*(USED_HEIGHT+1));
-    r |= p & (color >> (USED_HEIGHT+1));
-    p = (color >> (USED_HEIGHT+1)) & (color >> 2*(USED_HEIGHT+1));
-    r |= p & (color << (USED_HEIGHT+1));
-    r |= p & (color >> 3*(USED_HEIGHT+1));
-
-    // All of them can mistakenly hit the guard bit(s) and already filled bits
-    // We mask these out here
-    // BOARD_MASK ^ mask = bits that are actually empty
-    return r & BOARD_MASK;
 }
 
 ALWAYS_INLINE
@@ -239,6 +176,77 @@ Bitmap Position::opponent_winning_bits() const {
     return _winning_bits(color_);
 }
 
+// Like _winning_bits but don't assume gravity for vertical and don't mask
+// out of board bits and played bits at the end
+ALWAYS_INLINE
+Bitmap _possible_winning_bits(Bitmap color) FUNCTIONAL;
+Bitmap _possible_winning_bits(Bitmap color) {
+    Bitmap r = 0;
+    Bitmap p;
+
+    // vertical
+    p = (color << 1) & (color << 2);
+    // p = 2 stones next to each other (shifted one row up)
+    // Check  Xxx?
+    r |= p & (color << 3);
+    // Check xx?X
+    r |= p & (color >> 1);
+    // p = 2 stones next to each other (shifted one row down)
+    // We can get this from the previous p. Left for now for symmetry
+    //    .xx. => x...
+    p = (color >> 1) & (color >> 2);
+    // Check X?xx
+    r |= p & (color << 1);
+    // Check ?xxX
+    r |= p & (color >> 3);
+
+    // horizontal
+    // p = 2 stones next to each other (shifted one column to the right)
+    //    .xx. => ...x
+    p = (color << USED_HEIGHT) & (color << 2*USED_HEIGHT);
+    // Check  Xxx?
+    r |= p & (color << 3*USED_HEIGHT);
+    // Check xx?X
+    r |= p & (color >> USED_HEIGHT);
+    // p = 2 stones next to each other (shifted one column to the left)
+    // Cannot get this from previous p unless we know top was not shifted out
+    //    .xx. => x...
+    p = (color >> USED_HEIGHT) & (color >> 2*USED_HEIGHT);
+    // Check X?xx
+    r |= p & (color << USED_HEIGHT);
+    // Check ?xxX
+    r |= p & (color >> 3*USED_HEIGHT);
+
+    // diagonals are simular but moving columns one up/down
+    //diagonal 1
+    p = (color << HEIGHT) & (color << 2*HEIGHT);
+    r |= p & (color << 3*HEIGHT);
+    r |= p & (color >> HEIGHT);
+    p = (color >> HEIGHT) & (color >> 2*HEIGHT);
+    r |= p & (color << HEIGHT);
+    r |= p & (color >> 3*HEIGHT);
+
+    //diagonal 2
+    p = (color << (USED_HEIGHT+1)) & (color << 2*(USED_HEIGHT+1));
+    r |= p & (color << 3*(USED_HEIGHT+1));
+    r |= p & (color >> (USED_HEIGHT+1));
+    p = (color >> (USED_HEIGHT+1)) & (color >> 2*(USED_HEIGHT+1));
+    r |= p & (color << (USED_HEIGHT+1));
+    r |= p & (color >> 3*(USED_HEIGHT+1));
+
+    // All of them can mistakenly hit the guard bit(s) and already filled bits
+    // Make sure to mask them out with BOARDMASK when using the result
+    return r;
+}
+
+Bitmap Position::relevant_bits() const {
+    auto empty_or_opponent = ~color_ & BOARD_MASK;
+    auto can_win_opponent = _possible_winning_bits(empty_or_opponent) & ~color_;
+    auto can_win_me       = _possible_winning_bits(empty_or_opponent ^ mask_) & (~color_ ^ mask_);
+    auto relevant = can_win_opponent | can_win_me;
+    return relevant;
+}
+
 Position Position::play(char const* ptr, size_t size) {
     if (WIDTH >= 10) throw_logic("play doesn't support boards wider than 9");
     Position pos = *this;
@@ -268,9 +276,19 @@ Position Position::play(std::istream& in) const {
     return pos.play(line);
 }
 
-void Position::to_string(char* buf, int indent) const {
+void Position::to_string(char* buf, int indent, Bitmap relevant) const {
     Color mover = to_move();
     for (int i=0; i<indent; ++i) *buf++ = ' ';
+    if (relevant != FULL_MAP) {
+        for (int i=0; i<2; ++i) {
+            for (int x=0; x < WIDTH; ++x) {
+                *buf++ = '+';
+                *buf++ = '-';
+            }
+            *buf++ = '+';
+            *buf++ = ' ';
+        }
+    }
     for (int x=0; x < WIDTH; ++x) {
         *buf++ = '+';
         *buf++ = '-';
@@ -278,7 +296,9 @@ void Position::to_string(char* buf, int indent) const {
     *buf++ = '+';
     *buf++ = '\n';
 
-    for (int y=HEIGHT-1; y >=0; --y) {
+    auto relevant_color = (~relevant & mask_) | color_;
+    auto relevant_mask  = relevant & mask_;
+    for (int y=HEIGHT-1; y >=0; --y, relevant_color <<=1, relevant_mask <<= 1) {
         for (int i=0; i<indent; ++i) *buf++ = ' ';
         for (int x=0; x < WIDTH; ++x) {
             *buf++ = '|';
@@ -286,10 +306,34 @@ void Position::to_string(char* buf, int indent) const {
             *buf++ = v < 0 ? '.' : v == 0 ? 'x' : 'o';
         }
         *buf ++ = '|';
+        if (relevant != FULL_MAP) {
+            *buf ++ = ' ';
+            for (int x=0; x < WIDTH; ++x) {
+                *buf++ = '|';
+                *buf++ = relevant_color >> (x*USED_HEIGHT+HEIGHT-1) & 1 ? '*' : ' ';
+            }
+            *buf ++ = '|';
+            *buf ++ = ' ';
+            for (int x=0; x < WIDTH; ++x) {
+                *buf++ = '|';
+                *buf++ = relevant_mask >> (x*USED_HEIGHT+HEIGHT-1) & 1 ? '*' : ' ';
+            }
+            *buf ++ = '|';
+        }
         *buf ++ = '\n';
     }
 
     for (int i=0; i<indent; ++i) *buf++ = ' ';
+    if (relevant != FULL_MAP) {
+        for (int i=0; i<2; ++i) {
+            for (int x=0; x < WIDTH; ++x) {
+                *buf++ = '+';
+                *buf++ = '-';
+            }
+            *buf++ = '+';
+            *buf++ = ' ';
+        }
+    }
     for (int x=0; x < WIDTH; ++x) {
         *buf++ = '+';
         *buf++ = '-';
@@ -367,8 +411,22 @@ int Position::negamax() const {
 // actual score  >= beta         THEN actual score >= return value >= beta
 // alpha <= actual score <= beta THEN        return value = actual score
 int Position::_alphabeta(int alpha, int beta, Bitmap opponent_win) const {
+    auto relevant = relevant_bits();
+    if (false) {
+        auto extra_mask = (mask_ | ~relevant) & BOARD_MASK;
+        // If there are no relevant cells it is a draw
+        if (extra_mask == BOARD_MASK) return 0;
+        extra_mask = (((extra_mask + BOTTOM_BITS) & ABOVE_BITS) >> HEIGHT) * FULL_BIT & ~mask_;
+        if (popcount(extra_mask) >= 7) {
+            std::cout << this->to_string(0, relevant) << to_board(extra_mask);
+            exit(0);
+        }
+    }
 
-    auto transposition = transposition_entry();
+    // std::cout << "Relevant\n" << to_board(~relevant);
+    // relevant = BOARD_MASK;
+
+    auto transposition = transposition_entry(relevant);
     __builtin_prefetch(transposition);
     // Avoid the prefetch being moved down
     asm("");
@@ -377,7 +435,7 @@ int Position::_alphabeta(int alpha, int beta, Bitmap opponent_win) const {
     if (DEBUG) {
         indent = INDENT*this->indent();
         for (int i=0; i<indent; ++i) std::cout << " ";
-        std::cout << "Consider [" << alpha << ", " << beta << "]:\n" << this->to_string(indent);
+        std::cout << "Consider [" << alpha << ", " << beta << "]:\n" << this->to_string(indent, relevant);
         indent += INDENT;
     }
 
@@ -425,14 +483,14 @@ int Position::_alphabeta(int alpha, int beta, Bitmap opponent_win) const {
     int max, best;
     Bitmap best_bit;
     Bitmap my_stones = color_ ^ mask_;
-    if (transposition->get(key(), max, best)) {
+    if (get(transposition, relevant, max, best)) {
         hit();
         if (DEBUG) {
-            for (int i=0; i<indent; ++i) std::cout << " ";
+            for (int i=INDENT; i<indent; ++i) std::cout << " ";
             std::cout << "Cached score=" << max << ", best=" << best << "\n";
         }
         if (BEST) {
-            best_bit = ((ONE << HEIGHT) -1) << best * USED_HEIGHT & possible;
+            best_bit = FULL_BIT << best * USED_HEIGHT & possible;
             order[pos++] = Entry{my_stones | best_bit, 0, INT_MAX};
         } else {
             best_bit = 0;
@@ -530,7 +588,7 @@ int Position::_alphabeta(int alpha, int beta, Bitmap opponent_win) const {
     else
         best = 0;
     // real value <= alpha, so we are storing an upper bound
-    transposition->set(key(), current, best);
+    set(transposition, relevant, current, best);
     return current;
 }
 

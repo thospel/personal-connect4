@@ -46,7 +46,9 @@ static Bitmap const ONE = 1;
 static Bitmap const BOTTOM_BIT  = ONE;
 static Bitmap const TOP_BIT     = ONE << (HEIGHT-1);
 static Bitmap const ABOVE_BIT   = ONE << HEIGHT;
-static Bitmap const FULL_MAP = -1;
+static Bitmap const MOVER_BIT   = ONE << BITS;
+static Bitmap const FULL_BIT    = ABOVE_BIT - 1;
+static Bitmap const FULL_MAP    = -1;
 static Bitmap const KEY_MASK   = (ONE << KEY_BITS)   - 1;
 static Bitmap const SCORE_MASK = (ONE << SCORE_BITS) - 1;
 static Bitmap const BEST_MASK  = (ONE << BEST_BITS)  - 1;
@@ -64,10 +66,10 @@ static constexpr Bitmap REPEATING_ROWS(Bitmap model = ONE, int n=WIDTH) {
 static Bitmap const BOTTOM_BITS = REPEATING_ROWS(BOTTOM_BIT);
 static Bitmap const    TOP_BITS = REPEATING_ROWS(   TOP_BIT);
 static Bitmap const  ABOVE_BITS = REPEATING_ROWS( ABOVE_BIT);
-static Bitmap const BOARD_MASK  = REPEATING_ROWS((ONE << HEIGHT)-1);
+static Bitmap const BOARD_MASK  = REPEATING_ROWS(  FULL_BIT);
 static Bitmap const alternating_rows[2] = {
-    ALTERNATING_ROWS((ONE << HEIGHT)-1, 0),
-    ALTERNATING_ROWS(                0, (ONE << HEIGHT)-1),
+    ALTERNATING_ROWS(FULL_BIT,        0),
+    ALTERNATING_ROWS(       0, FULL_BIT),
 };
 
 inline std::string to_board(Bitmap bitmap, int indent=0) {
@@ -96,53 +98,69 @@ inline int first_bit(Bitmap value) {
     return (sizeof(value)*CHAR_BIT-1) - __builtin_clzl(value);
 }
 
+class Position;
+
 class Transposition {
   public:
     struct value_type {
         friend Transposition;
+        friend Position;
       public:
         value_type() {}
-        ALWAYS_INLINE
-        void set(Bitmap key, int value, int best) {
-        value_ =
-            key |
-            static_cast<Bitmap>(best) << KEY_BITS |
-            static_cast<Bitmap>(value + (MAX_SCORE+1)) << (KEY_BITS+BEST_BITS);
-        }
-        ALWAYS_INLINE
-        bool get(Bitmap key, int& score, int& best) const {
-            if ((value_ & KEY_MASK) != key) return false;
-            score = static_cast<int>(value_ >> (KEY_BITS+BEST_BITS)) - (MAX_SCORE+1);
-            best = (value_ >> KEY_BITS) & BEST_MASK;
-            return true;
-        }
-        static value_type INVALID() { return value_type{static_cast<Bitmap>(-1)}; }
 
       private:
-        explicit value_type(Bitmap value): value_{value} {}
-        Bitmap value_;
+        ALWAYS_INLINE
+        void set(Bitmap relevant_color, Bitmap relevant_mask,
+                 int value, int best) {
+            relevant_color_ = relevant_color;
+            relevant_mask_ =
+                relevant_mask |
+                static_cast<Bitmap>(best) << KEY_BITS |
+                static_cast<Bitmap>(value + (MAX_SCORE+1)) << (KEY_BITS+BEST_BITS);
+        }
+        ALWAYS_INLINE
+        bool get(Bitmap relevant_color, Bitmap relevant_mask,
+                 int& score, int& best) const {
+            if (relevant_color_ != relevant_color ||
+                (relevant_mask_ & KEY_MASK) != relevant_mask) {
+                // std::cout << "Miss " << relevant_color_ << " " << relevant_color << " | " << (relevant_mask_ & KEY_MASK) << " " << relevant_mask << "\n";
+                return false;
+            }
+            score = static_cast<int>(relevant_mask_ >> (KEY_BITS+BEST_BITS)) - (MAX_SCORE+1);
+            best = (relevant_mask_ >> KEY_BITS) & BEST_MASK;
+            return true;
+        }
+
+        // explicit value_type(Bitmap value): value_{value} {}
+        Bitmap relevant_color_;
+        Bitmap relevant_mask_;
     };
     Transposition(size_t size=0);
     void resize(size_t size);
     void clear() HOT;
-    value_type* entry(Bitmap key) {
-        return &entries_[fast_hash(key)];
+    value_type* entry(Bitmap relevant_color, Bitmap relevant_mask) {
+        return &entries_[fast_hash(relevant_color, relevant_mask)];
     }
-    value_type const* entry(Bitmap key) const {
-        return &entries_[fast_hash(key)];
+    value_type const* entry(Bitmap relevant_color, Bitmap relevant_mask) const {
+        return &entries_[fast_hash(relevant_color, relevant_mask)];
     }
     size_t size()  const { return entries_.size();  }
     size_t bytes() const { return size() * sizeof(value_type); }
 
   private:
     ALWAYS_INLINE
-    Bitmap fast_hash(Bitmap key) const {
-        static_assert(sizeof(key) == sizeof(LCM_MULTIPLIER),
+    Bitmap fast_hash(Bitmap relevant_color, Bitmap relevant_mask) const {
+        static_assert(sizeof(Bitmap) == sizeof(LCM_MULTIPLIER1),
                       "Bitmap is not 64 bits. Find another multiplier");
-        key *= LCM_MULTIPLIER;
-        return key >> bits_;
+        Bitmap key = (relevant_color * LCM_MULTIPLIER1 + relevant_mask * LCM_MULTIPLIER2) >> bits_;
+        // std::cout << "Key = " << key << "=" << relevant_color << " | " << relevant_mask << "\n";
+        return key;
     }
     static uint64_t const LCM_MULTIPLIER = UINT64_C(6364136223846793005);
+    // From "a study of 64-bit multipliers for lehmer pseudorandom number generators" by I.G. Dyadkin and K.G. Hamilton
+    static uint64_t const LCM_MULTIPLIER1 = UINT64_C(5336771413206822285);
+    static uint64_t const LCM_MULTIPLIER2 = UINT64_C(4051951651111305373);
+
 
     int bits_;
     std::vector<value_type> entries_;
@@ -226,10 +244,10 @@ class Position {
     bool operator==(Position const& rhs) const {
         return key() == rhs.key();
     }
-    void to_string(char *buf, int indent=0) const;
-    std::string to_string(int indent=0) const {
-        char buffer[BOARD_BUFSIZE+1+(HEIGHT+2)*indent];
-        to_string(buffer, indent);
+    void to_string(char *buf, int indent=0, Bitmap relevant = FULL_MAP) const;
+    std::string to_string(int indent=0, Bitmap relevant = FULL_MAP) const {
+        char buffer[BOARD_BUFSIZE*(relevant == FULL_MAP ? 1 : 3)+1+(HEIGHT+2)*indent];
+        to_string(buffer, indent, relevant);
         return buffer;
     }
     void clear() {
@@ -280,10 +298,19 @@ class Position {
     static size_t transpositions_size()  { return transpositions_.size();  }
     static size_t transpositions_bytes() { return transpositions_.bytes(); }
     ALWAYS_INLINE
-    Transposition::value_type* transposition_entry() const {
-        return transpositions_.entry(key());
+    Transposition::value_type* transposition_entry(Bitmap relevant) const {
+        return transpositions_.entry(color_ | (~relevant & mask_), relevant & mask_);
     }
+    void set(Transposition::value_type* entry, Bitmap relevant, int score, int best) const {
+        entry->set(color_ | (~relevant & mask_), relevant & mask_, score, best);
+    }
+    bool get(Transposition::value_type const* entry, Bitmap relevant,
+             int& score, int& best) const {
+        return entry->get(color_ | (~relevant & mask_), relevant & mask_, score, best);
+    }
+
     std::vector<int> principal_variation(int score, int method=0) const;
+    Bitmap relevant_bits() const;
 
   private:
     static int start_depth_;

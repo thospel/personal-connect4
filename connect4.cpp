@@ -176,8 +176,9 @@ int main([[maybe_unused]] int argc,
         Position pos{line};
         Position::reset(keep);
         for (auto const& p: preset) {
-            auto transposition = p.first.transposition_entry();
-            transposition->set(p.first.key(), p.second, 0);
+            auto relevant = p.first.relevant_bits();
+            auto transposition = p.first.transposition_entry(relevant);
+            p.first.set(transposition, relevant, p.second, 0);
         }
         if (generate >= 0) {
             pos.generate_book(line, generate, method);

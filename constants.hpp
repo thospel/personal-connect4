@@ -22,9 +22,9 @@
 # define UNLIKELY(x)	 __builtin_expect(!!(x),false)
 # define HOT		 __attribute__((__hot__))
 # define COLD		 __attribute__((__cold__))
-// pure means does not modify any (non const) global memory.
+// PURE means: does not modify any (non const) global memory.
 # define PURE		 __attribute__((__pure__))
-// const means does not read/modify any (non const) global memory.
+// FUNCTIONAL means: does not read/modify any (non const) global memory.
 # define FUNCTIONAL	 __attribute__((__const__))
 # define ALLOC_SIZE(x)	 __attribute__((alloc_size(x)))
 # define MALLOC		 __attribute__((malloc))
